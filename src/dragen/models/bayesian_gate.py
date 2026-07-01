@@ -1,0 +1,1 @@
+"""Bayesian gate module."""

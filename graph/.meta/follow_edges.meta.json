@@ -1,0 +1,27 @@
+{
+  "created_at_epoch": 1781152697,
+  "inputs": {
+    "D:\\experiment\\Macroeconomic_Forecast\\Experiments_on_data\\weibo2casicff\\data\\users\\uidlist.txt": {
+      "exists": true,
+      "is_dir": false,
+      "mtime_ns": 1345883693000000000,
+      "path": "D:\\experiment\\Macroeconomic_Forecast\\Experiments_on_data\\weibo2casicff\\data\\users\\uidlist.txt",
+      "size": 21441476
+    },
+    "D:\\experiment\\Macroeconomic_Forecast\\Experiments_on_data\\weibo2casicff\\data\\users\\weibo_network.txt": {
+      "exists": true,
+      "is_dir": false,
+      "mtime_ns": 1365307103000000000,
+      "path": "D:\\experiment\\Macroeconomic_Forecast\\Experiments_on_data\\weibo2casicff\\data\\users\\weibo_network.txt",
+      "size": 3864865009
+    }
+  },
+  "outputs": [
+    "D:\\experiment\\Macroeconomic_Forecast\\Experiments_on_data\\weibo2casicff\\work\\graph\\follow_edges.tsv",
+    "D:\\experiment\\Macroeconomic_Forecast\\Experiments_on_data\\weibo2casicff\\work\\graph\\follow_edges.tsv.done"
+  ],
+  "params_hash": "f3fe6cbf9f6dc754b0f37eeb3e99f2b9df69f9e93191ebbed9a9c722c5c0e855",
+  "platform": "Windows-11-10.0.22621-SP0",
+  "python": "3.13.12 | packaged by Anaconda, Inc. | (main, Feb 24 2026, 16:05:56) [MSC v.1942 64 bit (AMD64)]",
+  "schema_version": 1
+}

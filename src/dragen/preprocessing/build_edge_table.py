@@ -1,0 +1,1 @@
+"""Edge-table construction helpers."""

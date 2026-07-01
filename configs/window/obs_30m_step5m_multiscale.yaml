@@ -1,0 +1,6 @@
+window_mode: causal_multiscale
+obs_seconds: 1800
+step_seconds: 300
+window_size_seconds: 300
+context_window_seconds: 600
+edge_mode: star
