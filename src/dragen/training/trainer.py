@@ -12,6 +12,11 @@ from typing import Any, Dict, Mapping
 import torch
 from torch.utils.data import DataLoader
 
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:  # pragma: no cover - exercised only when tensorboard is absent.
+    SummaryWriter = None  # type: ignore[assignment]
+
 from dragen.data.pack_reader import collate_fn, make_datasets
 from dragen.evaluation.export_predictions import collect_predictions, export_prediction_files, move_batch_to_device, write_json
 from dragen.evaluation.metrics import binary_metrics
@@ -48,6 +53,7 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         use_role=args.use_role,
     ).to(device)
     optim = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    writer = create_tensorboard_writer(args, out_dir)
     weights = {
         "lambda_jump": args.lambda_jump,
         "lambda_struct": args.lambda_struct,
@@ -103,6 +109,16 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
             lr=current_lr(optim),
             epoch_time_sec=epoch_time_sec,
         )
+        write_tensorboard_epoch(
+            writer,
+            epoch=epoch,
+            train_loss=train_loss,
+            valid_loss=valid_loss,
+            valid_metrics=valid_metrics,
+            valid_breakdown=valid_breakdown,
+            lr=current_lr(optim),
+            epoch_time_sec=epoch_time_sec,
+        )
         checkpoint = build_checkpoint(model, optim, args, epoch, best_score, history)
         torch.save(checkpoint, out_dir / "checkpoints" / "last.pt")
         if args.save_every_epoch:
@@ -126,6 +142,8 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         metrics[split] = export_prediction_files(out_dir, split, events, detail)
     write_json(out_dir / "reports" / "metrics.json", metrics)
     write_json(out_dir / "reports" / "loss_breakdown.json", loss_breakdown)
+    if writer is not None:
+        writer.close()
     return {"metrics": metrics, "history": history}
 
 
@@ -258,6 +276,46 @@ def epoch_metric_fields() -> list[str]:
 
 def current_lr(optim: torch.optim.Optimizer) -> float:
     return float(optim.param_groups[0].get("lr", 0.0)) if optim.param_groups else 0.0
+
+
+def create_tensorboard_writer(args: Any, out_dir: Path) -> Any:
+    if not getattr(args, "tensorboard", False):
+        return None
+    if SummaryWriter is None:
+        raise RuntimeError("TensorBoard is not installed. Run: pip install tensorboard")
+    tb_dir = Path(args.tb_log_dir) if getattr(args, "tb_log_dir", None) else out_dir / "tb"
+    tb_dir.mkdir(parents=True, exist_ok=True)
+    print(f"tensorboard log_dir={tb_dir}", flush=True)
+    return SummaryWriter(log_dir=str(tb_dir))
+
+
+def write_tensorboard_epoch(
+    writer: Any,
+    *,
+    epoch: int,
+    train_loss: float,
+    valid_loss: float | None,
+    valid_metrics: Mapping[str, float],
+    valid_breakdown: Mapping[str, float],
+    lr: float,
+    epoch_time_sec: float,
+) -> None:
+    if writer is None:
+        return
+    writer.add_scalar("train/loss", train_loss, epoch)
+    writer.add_scalar("train/lr", lr, epoch)
+    writer.add_scalar("train/epoch_time_sec", epoch_time_sec, epoch)
+    if valid_loss is not None:
+        writer.add_scalar("valid/loss", valid_loss, epoch)
+    for key in ["accuracy", "precision", "recall", "f1", "auc", "ap", "mcc"]:
+        value = valid_metrics.get(key)
+        if isinstance(value, (int, float)):
+            writer.add_scalar(f"valid/{key}", float(value), epoch)
+    for key, value in valid_breakdown.items():
+        if isinstance(value, (int, float)):
+            name = key.removeprefix("loss_")
+            writer.add_scalar(f"loss/{name}", float(value), epoch)
+    writer.flush()
 
 
 def build_checkpoint(

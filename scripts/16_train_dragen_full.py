@@ -43,6 +43,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", default=None)
     parser.add_argument("--save-every-epoch", action="store_true")
     parser.add_argument("--eval-every", type=int, default=1)
+    parser.add_argument("--tensorboard", action="store_true")
+    parser.add_argument("--tb-log-dir", default=None)
     return parser.parse_args()
 
 

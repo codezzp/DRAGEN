@@ -27,6 +27,7 @@ Python >= 3.10
 PyTorch >= 2.1
 NumPy >= 1.24
 tqdm >= 4.66
+TensorBoard >= 2.14
 ```
 
 CPU 环境：
@@ -39,7 +40,7 @@ GPU 服务器建议按服务器 CUDA 版本安装 PyTorch。例如 CUDA 12.1：
 
 ```bash
 python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
-python -m pip install numpy pytest tqdm
+python -m pip install numpy pytest tqdm tensorboard
 ```
 
 验证：
@@ -215,9 +216,11 @@ python -m pip install -r requirements.txt
 python - <<'PY'
 import torch
 import tqdm
+import tensorboard
 print("torch", torch.__version__)
 print("cuda_available", torch.cuda.is_available())
 print("tqdm", tqdm.__version__)
+print("tensorboard", tensorboard.__version__)
 PY
 ```
 
@@ -301,6 +304,73 @@ python scripts/16_train_dragen_full.py \
 
 `--epochs` 表示目标总 epoch 数。例如 `last.pt` 已经保存到第 4 轮，设置 `--epochs 10` 会从第 5 轮继续到第 10 轮。
 
+### TensorBoard
+
+训练脚本支持 PyTorch TensorBoard 日志。训练时加：
+
+```bash
+--tensorboard
+```
+
+默认日志目录：
+
+```text
+<out-dir>/tb
+```
+
+也可以显式指定：
+
+```bash
+--tb-log-dir work/artifacts/tb/dragen_full_run0002
+```
+
+启动 TensorBoard：
+
+```bash
+tensorboard --logdir work/artifacts --host 0.0.0.0 --port 6006
+```
+
+浏览器访问：
+
+```text
+http://服务器IP:6006
+```
+
+如果服务器端口不能直接访问，用 SSH 转发：
+
+```bash
+ssh -L 6006:localhost:6006 user@server
+```
+
+然后本地浏览器打开：
+
+```text
+http://localhost:6006
+```
+
+记录的曲线包括：
+
+```text
+train/loss
+train/lr
+train/epoch_time_sec
+valid/loss
+valid/accuracy
+valid/precision
+valid/recall
+valid/f1
+valid/auc
+valid/ap
+valid/mcc
+loss/total
+loss/event
+loss/jump
+loss/struct
+loss/align
+loss/uncertainty
+loss/role
+```
+
 ### DRAGEN-Full 正式训练
 
 ```bash
@@ -320,7 +390,8 @@ python scripts/16_train_dragen_full.py \
   --lambda-uncertainty 0.001 \
   --lambda-role 0.0 \
   --device auto \
-  --seed 0
+  --seed 0 \
+  --tensorboard
 ```
 
 ### 显存不足版本

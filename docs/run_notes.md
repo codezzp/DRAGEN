@@ -19,6 +19,41 @@ Train config：
 ```text
 日期：2026-07-01
 Run ID：run_0002
+阶段：TensorBoard 可视化日志
+分支：experiment/run-0002-code
+新增参数：
+  --tensorboard
+  --tb-log-dir
+实现：
+  使用 torch.utils.tensorboard.SummaryWriter，不改变 PyTorch 训练框架。
+  --tensorboard 开启时默认写入 <out-dir>/tb。
+  --tb-log-dir 提供时写入指定目录。
+记录曲线：
+  train/loss
+  train/lr
+  train/epoch_time_sec
+  valid/loss
+  valid/accuracy
+  valid/precision
+  valid/recall
+  valid/f1
+  valid/auc
+  valid/ap
+  valid/mcc
+  loss/total
+  loss/event
+  loss/jump
+  loss/struct
+  loss/align
+  loss/uncertainty
+  loss/role
+备注：
+  TensorBoard 只负责可视化日志，不引入 TensorFlow 训练框架。
+```
+
+```text
+日期：2026-07-01
+Run ID：run_0002
 阶段：训练保存机制与断点续训
 分支：experiment/run-0002-code
 新增参数：
