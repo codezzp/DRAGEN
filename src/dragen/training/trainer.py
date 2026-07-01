@@ -17,6 +17,7 @@ try:
 except ImportError:  # pragma: no cover - exercised only when tensorboard is absent.
     SummaryWriter = None  # type: ignore[assignment]
 
+from dragen.config import write_run_metadata
 from dragen.data.pack_reader import collate_fn, make_datasets
 from dragen.evaluation.export_predictions import collect_predictions, export_prediction_files, move_batch_to_device, write_json
 from dragen.evaluation.metrics import binary_metrics
@@ -31,6 +32,7 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
     out_dir = Path(args.out_dir)
     (out_dir / "reports").mkdir(parents=True, exist_ok=True)
     (out_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+    write_run_metadata(out_dir, args)
     datasets = make_datasets(args.pack_dir, args.max_train_samples, args.max_valid_samples, args.max_test_samples)
     print(
         f"dataset sizes: train={len(datasets['train'])} valid={len(datasets['valid'])} test={len(datasets['test'])}",

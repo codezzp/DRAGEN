@@ -178,6 +178,84 @@ python scripts/13_build_packs.py --run-id run_0002 --feature-dir work/runs/run_0
 
 下一步入口应优先补训练评估：CAC-Stat、Campaign-GNN、Temporal-GNN、DRAGEN-Full，以及 `w/o Tree`、`w/o MultiScale`、`w/o Role`、`w/o Memory`、`w/o Global Prior`、`w/o Adaptive Sampling`、`w/o Gate`、`w/o Uncertainty` 消融。
 
+## 配置驱动训练
+
+训练、消融、结果表和预测分析脚本现在支持：
+
+```bash
+--config configs/train/<name>.yaml
+```
+
+参数优先级：
+
+```text
+脚本默认值 < YAML 配置 < CLI 覆盖
+```
+
+DRAGEN-Full 正式训练：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml
+```
+
+Debug 训练：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_debug.yaml
+```
+
+临时覆盖配置：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_full_run0002_seed1 \
+  --no-tensorboard
+```
+
+消融训练：
+
+```bash
+python scripts/17_run_ablation.py --config configs/train/ablation_no_role.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_memory.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_global_prior.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_adaptive_sampling.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_gate.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_uncertainty.yaml
+```
+
+`w/o Tree` 和 `w/o MultiScale` 只切换输入 pack，也可直接用训练脚本读取配置：
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/ablation_no_tree.yaml
+python scripts/16_train_dragen_full.py --config configs/train/ablation_no_multiscale.yaml
+```
+
+每次训练开始会写入：
+
+```text
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+```
+
+最终结果表：
+
+```bash
+python scripts/18_export_result_tables.py \
+  --config configs/train/result_tables_run0002.yaml
+```
+
+训练后分析：
+
+```bash
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/dragen_full_run0002_seed0
+```
+
 ## 文档
 
 - [docs/window_design.md](docs/window_design.md)：窗口划分设计。

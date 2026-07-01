@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Sequence
 
+from dragen.config import load_config
 from dragen.evaluation.metrics import binary_metrics
 
 
@@ -85,11 +86,33 @@ def load_event_metrics(run_dir: Path) -> Dict[str, object]:
         metrics = compute_metrics_from_event_predictions(run_dir)
     if not metrics:
         return {}
+    metadata = load_run_metadata(run_dir)
     return {
-        "model": infer_model_name(run_dir),
-        "input_variant": infer_input_variant(run_dir),
+        "model": metadata.get("model") or infer_model_name(run_dir),
+        "input_variant": metadata.get("input_variant") or infer_input_variant(run_dir),
         **metrics,
     }
+
+
+def load_run_metadata(run_dir: Path) -> Dict[str, str]:
+    path = run_dir / "reports" / "resolved_config.yaml"
+    if not path.exists():
+        return {}
+    data = load_config(str(path))
+    source = data.get("source_config", {}) if isinstance(data, dict) else {}
+    resolved = data.get("resolved_args", {}) if isinstance(data, dict) else {}
+    model = ""
+    input_variant = ""
+    if isinstance(source, dict):
+        model_section = source.get("model", {})
+        data_section = source.get("data", {})
+        if isinstance(model_section, dict):
+            model = str(model_section.get("name") or "")
+        if isinstance(data_section, dict):
+            input_variant = str(data_section.get("input_variant") or "")
+    if isinstance(resolved, dict):
+        input_variant = input_variant or str(resolved.get("input_variant") or "")
+    return {"model": model, "input_variant": input_variant}
 
 
 def load_metrics_json(run_dir: Path) -> Dict[str, float]:

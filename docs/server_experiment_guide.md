@@ -28,6 +28,7 @@ PyTorch >= 2.1
 NumPy >= 1.24
 tqdm >= 4.66
 TensorBoard >= 2.14
+PyYAML >= 6.0
 ```
 
 CPU 环境：
@@ -40,7 +41,7 @@ GPU 服务器建议按服务器 CUDA 版本安装 PyTorch。例如 CUDA 12.1：
 
 ```bash
 python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
-python -m pip install numpy pytest tqdm tensorboard
+python -m pip install numpy pytest tqdm tensorboard PyYAML
 ```
 
 验证：
@@ -217,14 +218,93 @@ python - <<'PY'
 import torch
 import tqdm
 import tensorboard
+import yaml
 print("torch", torch.__version__)
 print("cuda_available", torch.cuda.is_available())
 print("tqdm", tqdm.__version__)
 print("tensorboard", tensorboard.__version__)
+print("yaml", yaml.__version__)
 PY
 ```
 
-### Debug
+## 6.2 配置驱动训练命令
+
+服务器训练优先使用配置文件。参数优先级是：
+
+```text
+脚本默认值 < YAML 配置 < CLI 覆盖
+```
+
+DRAGEN-Full debug：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_debug.yaml
+```
+
+DRAGEN-Full 正式训练：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml
+```
+
+临时覆盖 seed、输出目录或 TensorBoard：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_full_run0002_seed1 \
+  --no-tensorboard
+```
+
+从 `last.pt` 续训：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml \
+  --resume work/artifacts/dragen_full_run0002_seed0/checkpoints/last.pt
+```
+
+消融训练：
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/ablation_no_tree.yaml
+python scripts/16_train_dragen_full.py --config configs/train/ablation_no_multiscale.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_role.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_memory.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_global_prior.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_adaptive_sampling.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_gate.yaml
+python scripts/17_run_ablation.py --config configs/train/ablation_no_uncertainty.yaml
+```
+
+每次训练开始会保存：
+
+```text
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+```
+
+结果表：
+
+```bash
+python scripts/18_export_result_tables.py \
+  --config configs/train/result_tables_run0002.yaml
+```
+
+训练后分析：
+
+```bash
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/dragen_full_run0002_seed0
+```
+
+### Debug 备用展开命令
+
+以下命令与配置文件等价，主要用于临时调参或排查配置覆盖问题。
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -371,7 +451,7 @@ loss/uncertainty
 loss/role
 ```
 
-### DRAGEN-Full 正式训练
+### DRAGEN-Full 正式训练备用展开命令
 
 ```bash
 python scripts/16_train_dragen_full.py \

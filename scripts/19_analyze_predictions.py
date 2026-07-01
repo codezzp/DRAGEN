@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 import warnings
 from pathlib import Path
 
 import _bootstrap  # noqa: F401
+from dragen.config import apply_config
 from dragen.evaluation.diagnostics import (
     compute_attention_statistics,
     compute_gate_statistics,
@@ -45,9 +47,12 @@ RISK_FIELDS = [
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze event-level and DRAGEN-Full diagnostic predictions.")
-    parser.add_argument("--artifact-dir", required=True)
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--artifact-dir", default=None)
     parser.add_argument("--out-dir", default=None)
-    args = parser.parse_args()
+    args = apply_config(parser, parser.parse_args(), sys.argv[1:])
+    if not args.artifact_dir:
+        raise SystemExit("Missing required argument --artifact-dir or config field analysis.artifact_dir")
 
     artifact_dir = Path(args.artifact_dir)
     out_dir = Path(args.out_dir) if args.out_dir else artifact_dir / "reports"

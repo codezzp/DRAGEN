@@ -19,6 +19,42 @@ Train config：
 ```text
 日期：2026-07-01
 Run ID：run_0002
+阶段：配置驱动实验入口
+分支：experiment/run-0002-code
+新增模块：
+  src/dragen/config.py
+新增配置：
+  configs/train/dragen_full_run0002.yaml
+  configs/train/dragen_full_debug.yaml
+  configs/train/ablation_no_tree.yaml
+  configs/train/ablation_no_multiscale.yaml
+  configs/train/ablation_no_role.yaml
+  configs/train/ablation_no_memory.yaml
+  configs/train/ablation_no_global_prior.yaml
+  configs/train/ablation_no_adaptive_sampling.yaml
+  configs/train/ablation_no_gate.yaml
+  configs/train/ablation_no_uncertainty.yaml
+  configs/train/result_tables_run0002.yaml
+支持入口：
+  scripts/14_train_cac_stat.py --config
+  scripts/15_train_gnn_baselines.py --config
+  scripts/16_train_dragen_full.py --config
+  scripts/17_run_ablation.py --config
+  scripts/18_export_result_tables.py --config
+  scripts/19_analyze_predictions.py --config
+优先级：
+  脚本默认值 < YAML 配置 < CLI 覆盖
+训练产物：
+  reports/resolved_config.yaml
+  reports/command.txt
+  reports/git_info.json
+备注：
+  不重构预处理配置，不重建窗口、特征、标签或 pack。
+```
+
+```text
+日期：2026-07-01
+Run ID：run_0002
 阶段：TensorBoard 可视化日志
 分支：experiment/run-0002-code
 新增参数：

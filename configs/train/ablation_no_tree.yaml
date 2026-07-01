@@ -1,20 +1,13 @@
 run_id: run_0002
-experiment_name: dragen_full_debug
-
+experiment_name: ablation_no_tree
+ablation: no_tree
 data:
-  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree
-  input_variant: MultiScale-HybridTree
-
+  pack_dir: packs/obs_1800_win300_step300_star
+  input_variant: Fixed-5m-Star
 model:
-  name: DRAGEN-Full
+  name: w/o Tree
   hidden_dim: 64
   role_num: 5
-  role_names:
-    - producer
-    - amplifier
-    - suppressor
-    - reframer
-    - ordinary
   top_k_global: 20
   use_global_prior: true
   use_adaptive_sampling: true
@@ -23,33 +16,23 @@ model:
   use_uncertainty: true
   use_role: true
   dropout: 0.1
-
 train:
-  epochs: 1
-  batch_size: 2
+  epochs: 10
+  batch_size: 8
   lr: 0.001
   weight_decay: 0.00001
   seed: 0
   device: auto
-  max_train_samples: 200
-  max_valid_samples: 100
-  max_test_samples: 100
-  eval_every: 1
-
 loss:
   lambda_jump: 0.01
   lambda_struct: 0.005
   lambda_align: 0.001
   lambda_uncertainty: 0.001
   lambda_role: 0.0
-
 logging:
-  tensorboard: false
-  tb_log_dir:
-
+  tensorboard: true
 checkpoint:
   resume:
   save_every_epoch: false
-
 output:
-  out_dir: work/artifacts/dragen_full_debug
+  out_dir: work/artifacts/ablation_no_tree

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 import _bootstrap  # noqa: F401
+from dragen.config import apply_config
 from dragen.training.trainer import train_dragen_full
 
 
@@ -14,8 +16,9 @@ def main() -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train thesis-aligned DRAGEN-Full.")
-    parser.add_argument("--pack-dir", required=True)
-    parser.add_argument("--out-dir", required=True)
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--pack-dir", default=None)
+    parser.add_argument("--out-dir", default=None)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--hidden-dim", type=int, default=64)
@@ -43,9 +46,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", default=None)
     parser.add_argument("--save-every-epoch", action="store_true")
     parser.add_argument("--eval-every", type=int, default=1)
-    parser.add_argument("--tensorboard", action="store_true")
+    parser.add_argument("--tensorboard", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--tb-log-dir", default=None)
-    return parser.parse_args()
+    args = apply_config(parser, parser.parse_args(), sys.argv[1:])
+    require_arg(args, "pack_dir")
+    require_arg(args, "out_dir")
+    return args
+
+
+def require_arg(args: argparse.Namespace, name: str) -> None:
+    if getattr(args, name, None) in (None, ""):
+        raise SystemExit(f"Missing required argument --{name.replace('_', '-')} or config field")
 
 
 if __name__ == "__main__":
