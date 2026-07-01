@@ -1,40 +1,90 @@
 # 多源证据特征设计
 
-DRAGEN 后续会使用多种异常传播证据。特征构建要模块化，并且所有特征都必须能通过稳定 ID 对齐。
+DRAGEN-Full 已经进入模型实验阶段。当前特征构建采用统计特征 v1，不使用 RoBERTa 或复杂情绪模型；模型内部通过 `feature_schema.py` 将节点窗口特征拆分为多源证据。
 
 ## 模块位置
 
 ```text
-src/dragen/features/text_features.py
-src/dragen/features/emotion_features.py
-src/dragen/features/behavior_features.py
-src/dragen/features/structure_features.py
-src/dragen/features/evidence_align.py
+src/dragen/features/build_features.py
+src/dragen/data/feature_schema.py
+src/dragen/models/source_evidence_encoder.py
+src/dragen/models/evidence_reader.py
 ```
 
 ## 证据类型
 
-文本证据：
+当前分源证据：
 
-- 根文本按 `cascade_idx` 对齐。
-- 转发文本按 `tweet_idx` 对齐。
+```python
+FEATURE_GROUPS = {
+    "text": [
+        "num_texts_cur",
+        "num_texts_visible",
+        "avg_text_len_cur",
+        "avg_text_len_visible",
+    ],
+    "emotion": [],
+    "behavior": [
+        "num_posts_cur",
+        "num_posts_ctx",
+        "num_posts_cum",
+        "active_window_count",
+        "time_since_first_seen",
+    ],
+    "structure": [
+        "in_degree_cur",
+        "out_degree_cur",
+        "in_degree_ctx",
+        "out_degree_ctx",
+        "in_degree_cum",
+        "out_degree_cum",
+        "depth",
+        "parent_time_gap",
+        "parent_score",
+        "time_score",
+        "text_score",
+        "activity_score",
+        "depth_penalty",
+        "load_penalty",
+        "root_fallback_flag",
+    ],
+}
+```
 
-情绪证据：
+`emotion` 组当前为空，作为论文模块接口保留。后续若加入情绪模型，只能在特征层补字段和 schema，不应破坏 pack 结构。
 
-- 从根文本或转发文本中抽取情绪、极性、强度等信息。
-- 在进入窗口聚合前，要先和 root/retweet 记录对齐。
+## 当前输出
 
-行为证据：
+特征构建入口：
 
-- 转发时间。
-- 用户活跃次数。
-- 窗口内重复转发、集中爆发等行为模式。
+```bash
+python scripts/11_build_features.py --run-id run_0002 --tree-edges work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv
+```
 
-结构证据：
+输出：
 
-- 局部传播入度、出度。
-- 当前窗口度数和累计度数。
-- 全局图邻居统计或角色信息。
+```text
+work/runs/run_0002/features/obs_1800_win300_step300_star/
+work/runs/run_0002/features/obs_1800_win300_step300_hybrid_tree/
+work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree/
+```
+
+每个目录包含：
+
+```text
+window_features.csv
+node_window_features.csv
+feature_diagnostics.json
+```
+
+当前验收：
+
+```text
+window_features = 511578
+node_window_features = 5940259
+nan_count = 0
+inf_count = 0
+```
 
 ## 对齐规则
 
@@ -69,11 +119,12 @@ text_window_table.csv
 - `star`：原始星形边窗口。
 - `inferred_tree`：时间一致代理传播树窗口。
 
-后续 pack 路径也应保留结构后缀，例如：
+当前 pack 路径保留结构和窗口策略后缀：
 
 ```text
 packs/obs_1800_win300_step300_star/
-packs/obs_1800_win300_step300_tree/
+packs/obs_1800_win300_step300_hybrid_tree/
+packs/obs_1800_step300_multiscale_hybrid_tree/
 ```
 
 ## 输出规则

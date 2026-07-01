@@ -12,10 +12,10 @@ cd DRAGEN
 git checkout experiment/run-0002-code
 ```
 
-当前关键提交：
+以远端分支最新提交为准。可在服务器确认：
 
-```text
-83b5ae7 feat: implement dragen full training
+```bash
+git log --oneline -1
 ```
 
 ## 2. 环境

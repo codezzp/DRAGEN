@@ -1,6 +1,6 @@
 # 窗口划分说明
 
-窗口划分是 DRAGEN 的核心模块之一，代码应集中放在 `src/dragen/windowing/`，不要混入 `build_org_tables.py` 或其他预处理脚本。
+窗口划分是 DRAGEN 的核心模块之一。当前窗口链路已经冻结，后续训练优先复用现有产物，不再扩展新窗口策略。
 
 ## 模块划分
 
@@ -49,7 +49,7 @@ src/dragen/windowing/text_window_builder.py
 configs/window/
 ```
 
-当前规划的配置包括：
+当前保留配置包括：
 
 ```text
 obs_30m_step5m.yaml
@@ -93,17 +93,20 @@ work/runs/<run_id>/windows/obs_<obs>_win<window>_step<step>_<edge_mode>/
 - `Fixed-5m`：非重叠 5 分钟窗口，工程 baseline。
 - `Causal MultiScale`：端点对齐多尺度因果窗口，推荐作为 DRAGEN 主窗口策略。
 
-`Fixed-5m` 输出：
+当前正式输出：
 
 ```text
-work/runs/<run_id>/windows/obs_1800_win300_step300_star/
+work/runs/run_0002/windows/obs_1800_win300_step300/
+work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree/
+work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
 ```
 
-`Causal MultiScale` 输出：
+其中：
 
 ```text
-work/runs/<run_id>/windows/obs_1800_step300_multiscale_star/
-work/runs/<run_id>/windows/obs_1800_step300_multiscale_hybrid_tree/
+Fixed-5m Star              -> baseline / w/o Tree
+Fixed-5m HybridTree        -> w/o MultiScale
+MultiScale HybridTree      -> DRAGEN-Full 主输入
 ```
 
 ## 端点对齐多尺度因果窗口
@@ -141,22 +144,22 @@ cumulative [0, e_t)
 - `edge_window_table.csv`：增加 `window_scope`，当前只写 `current` 和 `context` 两种边图，不写 cumulative 全量边。
 - `text_window_table.csv`：沿用现有因果文本可见规则，root 全窗口可见，retweet 出现后可见。
 
-调试命令：
+正式 MultiScale HybridTree 命令：
 
 ```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode star --max-cascades 10 --out-dir work/runs/run_0002/windows/_debug_obs_1800_step300_multiscale_star
+python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree
 ```
 
-调试结果：
+正式结果：
 
 ```text
-cascades = 10
-windows = 60
-node_windows = 214
-edge_windows = 124
-text_windows = 224
-current_edges = 43
-context_edges = 81
+cascades = 85263
+window_rows = 511578
+node_window_rows = 5940259
+edge_window_rows = 4019952
+text_window_rows = 6032866
+current_edges = 1392078
+context_edges = 2627874
 retweet_text_early_violations = 0
 ```
 
