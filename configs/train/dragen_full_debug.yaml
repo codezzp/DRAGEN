@@ -1,0 +1,15 @@
+epochs: 1
+batch_size: 2
+lr: 0.001
+weight_decay: 0.00001
+
+lambda_jump: 0.01
+lambda_struct: 0.005
+lambda_align: 0.001
+lambda_uncertainty: 0.001
+lambda_role: 0.0
+
+max_train_samples: 200
+max_valid_samples: 100
+max_test_samples: 100
+device: auto

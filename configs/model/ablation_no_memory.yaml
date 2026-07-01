@@ -1,0 +1,2 @@
+inherits: dragen_full.yaml
+use_temporal_memory: false

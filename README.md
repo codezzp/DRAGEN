@@ -2,7 +2,7 @@
 
 DRAGEN 是一个用于级联预测实验的工程目录。当前目录的核心约定是：每批数据固定放在 `work/runs/<run_id>/`，命令入口放在 `scripts/`，真正的实现逻辑放在 `src/dragen/`。
 
-当前阶段已经完成工程结构、数据边界、30m/5m 窗口划分、HybridTree Light 全量树、MultiScale HybridTree 窗口、统计特征、弱监督标签和事件级 pack。后续重点转入 baseline、DRAGEN-Light、消融和结果表，不再继续扩展预处理结构。
+当前阶段已经完成工程结构、数据边界、30m/5m 窗口划分、HybridTree Light 全量树、MultiScale HybridTree 窗口、统计特征、弱监督标签、事件级 pack 和 DRAGEN-Full debug 训练。后续重点转入 baseline、DRAGEN-Full 正式训练、消融和结果表，不再继续扩展预处理结构。
 
 ## 目录结构
 
@@ -176,7 +176,7 @@ python scripts/13_build_packs.py --run-id run_0002 --feature-dir work/runs/run_0
 
 当前环境未安装 torch，`train.pt`、`valid.pt`、`test.pt` 是 pickle stream 格式；读取方式见对应 `meta.json`。
 
-下一步入口应优先补训练评估：CAC-Stat、Campaign-GNN、Temporal-GNN、DRAGEN-Light，以及 `w/o Tree`、`w/o MultiScale`、`w/o Role`、`w/o Gate` 四个消融。
+下一步入口应优先补训练评估：CAC-Stat、Campaign-GNN、Temporal-GNN、DRAGEN-Full，以及 `w/o Tree`、`w/o MultiScale`、`w/o Role`、`w/o Memory`、`w/o Global Prior`、`w/o Adaptive Sampling`、`w/o Gate`、`w/o Uncertainty` 消融。
 
 ## 文档
 

@@ -88,7 +88,47 @@ Run ID：run_0002
     edge_alignment_errors = 0
 备注：
   当前环境未安装 torch，pack 使用 pickle stream 写入 .pt。读取方式见 meta.json。
-  下一步进入 baseline 与 DRAGEN-Light 训练评估，不再扩展预处理结构。
+  下一步进入 baseline 与 DRAGEN-Full 训练评估，不再扩展预处理结构。
+```
+
+```text
+日期：2026-07-01
+Run ID：run_0002
+阶段：DRAGEN-Full 论文版模型与 debug 训练
+分支：experiment/run-0002-code
+新增入口：
+  scripts/16_train_dragen_full.py
+  scripts/17_run_ablation.py
+  scripts/18_export_result_tables.py
+核心模块：
+  source_evidence_encoder / evidence_reader / local_role_encoder / adaptive_global_sampler
+  global_prior_encoder / temporal_memory / manipulation_state / bayesian_gate / event_pooling / dragen_full
+角色集合：
+  producer, amplifier, suppressor, reframer, ordinary
+命令：
+  python scripts/16_train_dragen_full.py --pack-dir work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree --out-dir work/artifacts/dragen_full_debug --epochs 1 --batch-size 2 --max-train-samples 200 --max-valid-samples 100 --max-test-samples 100 --hidden-dim 64 --role-num 5 --top-k-global 20 --lambda-jump 0.01 --lambda-struct 0.005 --lambda-align 0.001 --lambda-uncertainty 0.001 --lambda-role 0.0 --device cpu
+输出：
+  work/artifacts/dragen_full_debug/checkpoints/best.pt
+  work/artifacts/dragen_full_debug/reports/metrics.json
+  work/artifacts/dragen_full_debug/reports/loss_breakdown.json
+  work/artifacts/dragen_full_debug/predictions/event_predictions.csv
+  work/artifacts/dragen_full_debug/predictions/node_window_predictions.csv
+  work/artifacts/dragen_full_debug/predictions/role_distribution.csv
+  work/artifacts/dragen_full_debug/predictions/gate_weights.csv
+  work/artifacts/dragen_full_debug/predictions/uncertainty.csv
+  work/artifacts/dragen_full_debug/predictions/event_attention.csv
+  work/artifacts/dragen_full_debug/predictions/sampled_global_neighbors.csv
+结果：
+  debug epoch = 1
+  train_loss = 0.3926
+  valid_auc = 0.9113
+  test_auc = 0.9005
+  forward 输出包含论文核心变量：event/node logits, source_evidence, local_role_repr, global_prior, history_state, manip_state, role_prob, shock, gate weights, uncertainty, event_attention。
+  role_distribution.csv 只使用固定五类角色。
+备注：
+  已安装 CPU 版 PyTorch 用于本地 debug。
+  特征进入模型前在 pack_reader.collate_fn 中做 signed log1p 稳定化，避免原始计数和时间尺度导致训练溢出。
+  下一步可以启动正式训练或先实现 baseline 主实验。
 ```
 
 ## 记录

@@ -1,0 +1,2 @@
+inherits: dragen_full.yaml
+use_prior_observation_gate: false

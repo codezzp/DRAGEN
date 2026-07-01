@@ -132,13 +132,69 @@ The current `.pt` files are pickle streams because the local environment does no
 
 ## Next Work
 
-Do not expand preprocessing before model results exist. The next tasks are:
+## DRAGEN-Full Debug
+
+DRAGEN-Full has replaced the previous light-model plan. The implementation keeps the thesis Chapter 4 modules:
+
+```text
+source evidence encoding
+selective evidence reading
+local role encoding
+adaptive global sampling
+global prior encoding
+temporal memory
+manipulation state accumulation
+evidence shock
+prior-observation Bayesian gate
+uncertainty head
+event attention pooling
+```
+
+Debug command completed for one epoch:
+
+```text
+out_dir = work/artifacts/dragen_full_debug
+train_loss = 0.3926
+valid_auc = 0.9113
+test_auc = 0.9005
+```
+
+Exported files:
+
+```text
+reports/metrics.json
+reports/loss_breakdown.json
+predictions/event_predictions.csv
+predictions/node_window_predictions.csv
+predictions/role_distribution.csv
+predictions/gate_weights.csv
+predictions/uncertainty.csv
+predictions/event_attention.csv
+predictions/sampled_global_neighbors.csv
+checkpoints/best.pt
+```
+
+Roles are fixed to:
+
+```text
+producer
+amplifier
+suppressor
+reframer
+ordinary
+```
+
+No role outside this fixed set is used in DRAGEN-Full outputs.
+
+## Next Work
+
+Do not expand preprocessing before main model results are complete. The next tasks are:
 
 ```text
 1. CAC-Stat baseline.
 2. Campaign-GNN baseline.
 3. Temporal-GNN baseline.
-4. DRAGEN-Light.
-5. Ablations: w/o Tree, w/o MultiScale, w/o Role, w/o Gate.
+4. DRAGEN-Full formal run.
+5. Ablations: w/o Tree, w/o MultiScale, w/o Role, w/o Memory, w/o Global Prior, w/o Adaptive Sampling, w/o Gate, w/o Uncertainty.
 6. Export main_results.csv and ablation_results.csv under work/artifacts/reports/.
 ```

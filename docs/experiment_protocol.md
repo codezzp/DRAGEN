@@ -238,7 +238,7 @@ work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
 CAC-Stat
 Campaign-GNN
 Temporal-GNN
-DRAGEN-Light
+DRAGEN-Full
 w/o Tree
 w/o MultiScale
 w/o Role

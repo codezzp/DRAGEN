@@ -1,0 +1,2 @@
+inherits: dragen_full.yaml
+use_adaptive_sampler: false
