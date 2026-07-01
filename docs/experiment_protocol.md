@@ -220,7 +220,28 @@ work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
 
 ## 10. 训练和评估
 
-训练和评估时必须记录：
+训练和评估必须优先使用配置文件：
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_run0002.yaml
+```
+
+临时实验允许用 CLI 覆盖配置：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_full_run0002_seed1
+```
+
+参数优先级：
+
+```text
+脚本默认值 < YAML 配置 < CLI 覆盖
+```
+
+训练和评估时必须记录并随结果落盘：
 
 - data config
 - window config
@@ -230,7 +251,51 @@ work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
 - checkpoint path
 - metrics
 
-没有记录这些配置的结果，不应该拿来做正式对比。
+每次训练开始会自动写：
+
+```text
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+```
+
+没有这些配置快照的结果，不应该拿来做正式对比。
+
+训练过程中每个 epoch 会写：
+
+```text
+reports/epoch_metrics.csv
+reports/loss_breakdown.json
+checkpoints/last.pt
+```
+
+valid 指标刷新历史最优时写：
+
+```text
+checkpoints/best.pt
+```
+
+断点续训：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml \
+  --resume work/artifacts/dragen_full_run0002_seed0/checkpoints/last.pt
+```
+
+TensorBoard 可选开启，使用 PyTorch `SummaryWriter`，不引入 TensorFlow 训练框架：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml \
+  --tensorboard
+```
+
+查看曲线：
+
+```bash
+tensorboard --logdir work/artifacts --host 0.0.0.0 --port 6006
+```
 
 最小闭环顺序：
 
@@ -243,6 +308,22 @@ w/o Tree
 w/o MultiScale
 w/o Role
 w/o Gate
+```
+
+当前已提供的正式配置：
+
+```text
+configs/train/dragen_full_debug.yaml
+configs/train/dragen_full_run0002.yaml
+configs/train/ablation_no_tree.yaml
+configs/train/ablation_no_multiscale.yaml
+configs/train/ablation_no_role.yaml
+configs/train/ablation_no_memory.yaml
+configs/train/ablation_no_global_prior.yaml
+configs/train/ablation_no_adaptive_sampling.yaml
+configs/train/ablation_no_gate.yaml
+configs/train/ablation_no_uncertainty.yaml
+configs/train/result_tables_run0002.yaml
 ```
 
 ## 11. 结果表
@@ -317,7 +398,7 @@ top5_attention_mass_mean
 解释性分析入口：
 
 ```bash
-python scripts/19_analyze_predictions.py --artifact-dir work/artifacts/dragen_full_run0002
+python scripts/19_analyze_predictions.py --artifact-dir work/artifacts/dragen_full_run0002_seed0
 ```
 
 输出：

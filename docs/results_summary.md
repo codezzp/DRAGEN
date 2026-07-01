@@ -17,6 +17,26 @@ work/ is ignored and must not be committed.
 graph/follow_edges.tsv is excluded from the pushed experiment branch.
 ```
 
+The current experiment execution is config-driven. Training, ablation, analysis, and result-table scripts support:
+
+```bash
+--config configs/train/<name>.yaml
+```
+
+Priority:
+
+```text
+script defaults < YAML config < CLI overrides
+```
+
+Each training run writes reproducibility metadata:
+
+```text
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+```
+
 ## Completed Inputs
 
 ### Fixed-5m Star
@@ -172,6 +192,11 @@ predictions/uncertainty.csv
 predictions/event_attention.csv
 predictions/sampled_global_neighbors.csv
 checkpoints/best.pt
+checkpoints/last.pt
+reports/epoch_metrics.csv
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
 ```
 
 Roles are fixed to:
@@ -186,6 +211,68 @@ ordinary
 
 No role outside this fixed set is used in DRAGEN-Full outputs.
 
+## Training Controls
+
+DRAGEN-Full training now supports per-epoch persistence, resume, and TensorBoard:
+
+```text
+reports/epoch_metrics.csv
+reports/loss_breakdown.json
+checkpoints/last.pt
+checkpoints/best.pt
+optional checkpoints/epoch_{epoch}.pt
+optional <out-dir>/tb
+```
+
+Recommended config commands:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_debug.yaml
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_run0002.yaml
+```
+
+Resume:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_run0002.yaml \
+  --resume work/artifacts/dragen_full_run0002_seed0/checkpoints/last.pt
+```
+
+TensorBoard:
+
+```bash
+tensorboard --logdir work/artifacts --host 0.0.0.0 --port 6006
+```
+
+## Configured Experiments
+
+Main DRAGEN-Full configs:
+
+```text
+configs/train/dragen_full_debug.yaml
+configs/train/dragen_full_run0002.yaml
+```
+
+Ablation configs:
+
+```text
+configs/train/ablation_no_tree.yaml
+configs/train/ablation_no_multiscale.yaml
+configs/train/ablation_no_role.yaml
+configs/train/ablation_no_memory.yaml
+configs/train/ablation_no_global_prior.yaml
+configs/train/ablation_no_adaptive_sampling.yaml
+configs/train/ablation_no_gate.yaml
+configs/train/ablation_no_uncertainty.yaml
+```
+
+Result table config:
+
+```text
+configs/train/result_tables_run0002.yaml
+```
+
 ## Next Work
 
 Do not expand preprocessing before main model results are complete. The next tasks are:
@@ -196,7 +283,7 @@ Do not expand preprocessing before main model results are complete. The next tas
 3. Temporal-GNN baseline.
 4. DRAGEN-Full formal run.
 5. Ablations: w/o Tree, w/o MultiScale, w/o Role, w/o Memory, w/o Global Prior, w/o Adaptive Sampling, w/o Gate, w/o Uncertainty.
-6. Export main_results.csv and ablation_results.csv under work/artifacts/reports/.
+6. Export main_results.csv, risk_retrieval_results.csv, and ablation_results.csv under work/artifacts/reports/.
 ```
 
 ## Evaluation Metric Update
@@ -257,7 +344,7 @@ Post-training analysis entry:
 
 ```bash
 python scripts/19_analyze_predictions.py \
-  --artifact-dir work/artifacts/dragen_full_run0002
+  --artifact-dir work/artifacts/dragen_full_run0002_seed0
 ```
 
 Outputs:
@@ -274,21 +361,5 @@ Result-table entry:
 
 ```bash
 python scripts/18_export_result_tables.py \
-  --run-dirs \
-    work/artifacts/cac_stat_run0002 \
-    work/artifacts/campaign_gnn_run0002 \
-    work/artifacts/temporal_gnn_run0002 \
-    work/artifacts/dragen_full_run0002 \
-  --ablation-run-dirs \
-    work/artifacts/dragen_full_run0002 \
-    work/artifacts/ablation_no_tree \
-    work/artifacts/ablation_no_multiscale \
-    work/artifacts/ablation_no_role \
-    work/artifacts/ablation_no_memory \
-    work/artifacts/ablation_no_global_prior \
-    work/artifacts/ablation_no_adaptive_sampling \
-    work/artifacts/ablation_no_gate \
-    work/artifacts/ablation_no_uncertainty \
-  --full-run-dir work/artifacts/dragen_full_run0002 \
-  --out-dir work/artifacts/reports
+  --config configs/train/result_tables_run0002.yaml
 ```

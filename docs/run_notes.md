@@ -19,6 +19,28 @@ Train config：
 ```text
 日期：2026-07-01
 Run ID：run_0002
+阶段：文档同步配置驱动实验流程
+分支：experiment/run-0002-code
+更新文档：
+  README.md
+  docs/server_experiment_guide.md
+  docs/results_summary.md
+  docs/experiment_protocol.md
+  docs/run_notes.md
+同步内容：
+  --config 配置驱动训练命令
+  CLI 覆盖优先级
+  resolved_config.yaml / command.txt / git_info.json 保存规则
+  epoch_metrics.csv / last.pt / best.pt 保存机制
+  TensorBoard 启动与端口转发
+  result_tables_run0002.yaml 结果表导出命令
+备注：
+  本次只更新文档，不修改模型结构、不重建数据。
+```
+
+```text
+日期：2026-07-01
+Run ID：run_0002
 阶段：配置驱动实验入口
 分支：experiment/run-0002-code
 新增模块：
