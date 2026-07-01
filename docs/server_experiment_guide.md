@@ -523,3 +523,87 @@ reports/metrics.json
 reports/loss_breakdown.json
 predictions/*.csv
 ```
+
+## 10. Post-training metrics and tables
+
+After each training run, compute the event-level and DRAGEN explanation reports:
+
+```bash
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/dragen_full_run0002
+```
+
+For ablations with DRAGEN-style explanation outputs, run the same command:
+
+```bash
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/ablation_no_role
+
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/ablation_no_memory
+
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/ablation_no_gate
+
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/ablation_no_uncertainty
+```
+
+The script writes:
+
+```text
+reports/event_metrics_extended.json
+reports/risk_retrieval_metrics.json
+reports/temporal_stability_metrics.json
+reports/interpretability_metrics.json
+reports/diagnostic_summary.csv
+```
+
+Fair comparison tables use only event-level predictions. All models must provide:
+
+```text
+predictions/event_predictions.csv
+```
+
+Required fields:
+
+```text
+cascade_idx
+split
+y_true
+y_prob
+y_pred
+```
+
+Export main, risk-retrieval, and ablation tables:
+
+```bash
+python scripts/18_export_result_tables.py \
+  --run-dirs \
+    work/artifacts/cac_stat_run0002 \
+    work/artifacts/campaign_gnn_run0002 \
+    work/artifacts/temporal_gnn_run0002 \
+    work/artifacts/dragen_full_run0002 \
+  --ablation-run-dirs \
+    work/artifacts/dragen_full_run0002 \
+    work/artifacts/ablation_no_tree \
+    work/artifacts/ablation_no_multiscale \
+    work/artifacts/ablation_no_role \
+    work/artifacts/ablation_no_memory \
+    work/artifacts/ablation_no_global_prior \
+    work/artifacts/ablation_no_adaptive_sampling \
+    work/artifacts/ablation_no_gate \
+    work/artifacts/ablation_no_uncertainty \
+  --full-run-dir work/artifacts/dragen_full_run0002 \
+  --out-dir work/artifacts/reports
+```
+
+Outputs:
+
+```text
+work/artifacts/reports/main_results.csv
+work/artifacts/reports/risk_retrieval_results.csv
+work/artifacts/reports/ablation_results.csv
+```
+
+Do not put DRAGEN-only explanation metrics into the baseline comparison table. Role, gate, uncertainty, temporal stability, and attention metrics belong only in the explanation/stability analysis table.

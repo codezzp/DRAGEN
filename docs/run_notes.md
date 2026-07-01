@@ -94,6 +94,33 @@ Run ID：run_0002
 ```text
 日期：2026-07-01
 Run ID：run_0002
+阶段：评估指标体系扩展
+分支：experiment/run-0002-code
+新增入口：
+  scripts/19_analyze_predictions.py
+更新入口：
+  scripts/18_export_result_tables.py
+口径：
+  主实验、风险预警和消融实验只使用 predictions/event_predictions.csv 计算事件级公平指标。
+  DRAGEN-Full 的角色、门控、不确定性、注意力和时序稳定性指标只用于解释性分析，不与普通 baseline 强行对比。
+输出：
+  reports/event_metrics_extended.json
+  reports/risk_retrieval_metrics.json
+  reports/temporal_stability_metrics.json
+  reports/interpretability_metrics.json
+  reports/diagnostic_summary.csv
+结果表：
+  work/artifacts/reports/main_results.csv
+  work/artifacts/reports/risk_retrieval_results.csv
+  work/artifacts/reports/ablation_results.csv
+备注：
+  角色集合固定为 producer, amplifier, suppressor, reframer, ordinary。
+  输出中禁止 bridge。
+```
+
+```text
+日期：2026-07-01
+Run ID：run_0002
 阶段：DRAGEN-Full 论文版模型与 debug 训练
 分支：experiment/run-0002-code
 新增入口：

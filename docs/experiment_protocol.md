@@ -254,10 +254,91 @@ data_statistics.csv
 tree_compare_table.csv
 window_compare_table.csv
 main_results.csv
+risk_retrieval_results.csv
 ablation_results.csv
 ```
 
 `work/` 不提交。需要提交的是 `docs/run_notes.md`、本协议和必要的结果摘要文档。
+
+### 11.1 公平对比指标
+
+主实验、风险预警和消融实验只使用所有模型都能产生的事件级输出：
+
+```text
+predictions/event_predictions.csv
+```
+
+统一字段：
+
+```text
+cascade_idx
+split
+y_true
+y_prob
+y_pred
+```
+
+主实验表只放事件级公平指标：
+
+```text
+model,input_variant,accuracy,balanced_accuracy,precision,recall,specificity,f1,macro_f1,auc,ap,mcc,brier,ece
+```
+
+风险预警表只放事件级排序指标：
+
+```text
+model,input_variant,precision_at_100,precision_at_500,recall_at_500,precision_at_1pct,recall_at_1pct,precision_at_5pct,recall_at_5pct
+```
+
+消融表使用同一套事件级指标，并以 DRAGEN-Full 为基准计算：
+
+```text
+delta_auc
+delta_ap
+delta_f1
+delta_mcc
+```
+
+### 11.2 DRAGEN 解释性指标
+
+以下指标只用于 DRAGEN-Full 或具有对应解释输出的消融模型，不与普通 baseline 强行对比：
+
+```text
+prob_jump_mean
+role_transition_rate
+shock_weighted_jump
+mean_gate_obs
+mean_gate_prior
+uncertainty_wrong_mean
+attention_entropy
+top5_attention_mass_mean
+```
+
+解释性分析入口：
+
+```bash
+python scripts/19_analyze_predictions.py --artifact-dir work/artifacts/dragen_full_run0002
+```
+
+输出：
+
+```text
+reports/temporal_stability_metrics.json
+reports/interpretability_metrics.json
+reports/diagnostic_summary.csv
+```
+
+角色集合固定为：
+
+```text
+producer
+amplifier
+suppressor
+reframer
+ordinary
+```
+
+禁止在角色输出中使用 `bridge`。
 
 ## 12. 记录实验
 

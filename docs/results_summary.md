@@ -198,3 +198,97 @@ Do not expand preprocessing before main model results are complete. The next tas
 5. Ablations: w/o Tree, w/o MultiScale, w/o Role, w/o Memory, w/o Global Prior, w/o Adaptive Sampling, w/o Gate, w/o Uncertainty.
 6. Export main_results.csv and ablation_results.csv under work/artifacts/reports/.
 ```
+
+## Evaluation Metric Update
+
+Evaluation is now split into two categories.
+
+Fair event-level metrics are used for main experiments, risk-retrieval tables, and ablations. They are computed only from:
+
+```text
+predictions/event_predictions.csv
+```
+
+Required fields:
+
+```text
+cascade_idx
+split
+y_true
+y_prob
+y_pred
+```
+
+Fair metrics:
+
+```text
+accuracy
+balanced_accuracy
+precision
+recall
+specificity
+f1
+macro_f1
+auc
+ap
+mcc
+brier
+ece
+precision_at_100
+precision_at_500
+recall_at_500
+precision_at_1pct
+recall_at_1pct
+precision_at_5pct
+recall_at_5pct
+```
+
+DRAGEN-specific interpretability metrics are separate and must not be compared against baselines that do not export node-window explanations. They read:
+
+```text
+predictions/node_window_predictions.csv
+predictions/role_distribution.csv
+predictions/gate_weights.csv
+predictions/uncertainty.csv
+predictions/event_attention.csv
+```
+
+Post-training analysis entry:
+
+```bash
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/dragen_full_run0002
+```
+
+Outputs:
+
+```text
+reports/event_metrics_extended.json
+reports/risk_retrieval_metrics.json
+reports/temporal_stability_metrics.json
+reports/interpretability_metrics.json
+reports/diagnostic_summary.csv
+```
+
+Result-table entry:
+
+```bash
+python scripts/18_export_result_tables.py \
+  --run-dirs \
+    work/artifacts/cac_stat_run0002 \
+    work/artifacts/campaign_gnn_run0002 \
+    work/artifacts/temporal_gnn_run0002 \
+    work/artifacts/dragen_full_run0002 \
+  --ablation-run-dirs \
+    work/artifacts/dragen_full_run0002 \
+    work/artifacts/ablation_no_tree \
+    work/artifacts/ablation_no_multiscale \
+    work/artifacts/ablation_no_role \
+    work/artifacts/ablation_no_memory \
+    work/artifacts/ablation_no_global_prior \
+    work/artifacts/ablation_no_adaptive_sampling \
+    work/artifacts/ablation_no_gate \
+    work/artifacts/ablation_no_uncertainty \
+  --full-run-dir work/artifacts/dragen_full_run0002 \
+  --out-dir work/artifacts/reports
+```
