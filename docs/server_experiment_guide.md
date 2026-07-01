@@ -160,6 +160,7 @@ python scripts/16_train_dragen_full.py \
 ```text
 work/artifacts/dragen_full_debug/reports/metrics.json
 work/artifacts/dragen_full_debug/reports/loss_breakdown.json
+work/artifacts/dragen_full_debug/reports/epoch_metrics.csv
 work/artifacts/dragen_full_debug/predictions/event_predictions.csv
 work/artifacts/dragen_full_debug/predictions/node_window_predictions.csv
 work/artifacts/dragen_full_debug/predictions/role_distribution.csv
@@ -168,6 +169,7 @@ work/artifacts/dragen_full_debug/predictions/uncertainty.csv
 work/artifacts/dragen_full_debug/predictions/event_attention.csv
 work/artifacts/dragen_full_debug/predictions/sampled_global_neighbors.csv
 work/artifacts/dragen_full_debug/checkpoints/best.pt
+work/artifacts/dragen_full_debug/checkpoints/last.pt
 ```
 
 ## 6.1 服务器根目录 packs 快速命令
@@ -241,6 +243,64 @@ python scripts/16_train_dragen_full.py \
   --device auto
 ```
 
+### 保存和断点续训
+
+训练脚本现在每个 epoch 结束后都会写：
+
+```text
+reports/epoch_metrics.csv
+reports/loss_breakdown.json
+checkpoints/last.pt
+```
+
+验证指标刷新历史最优时会写：
+
+```text
+checkpoints/best.pt
+```
+
+默认不会保存每个 epoch 的完整 checkpoint，避免磁盘占用过大。如果确实需要保留每轮模型，额外加：
+
+```bash
+--save-every-epoch
+```
+
+训练过程中查看每轮指标：
+
+```bash
+tail -f work/artifacts/dragen_full_run0002/reports/epoch_metrics.csv
+```
+
+查看 checkpoint：
+
+```bash
+ls -lh work/artifacts/dragen_full_run0002/checkpoints
+```
+
+从最近一轮继续训练：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/dragen_full_run0002 \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --weight-decay 0.00001 \
+  --lambda-jump 0.01 \
+  --lambda-struct 0.005 \
+  --lambda-align 0.001 \
+  --lambda-uncertainty 0.001 \
+  --lambda-role 0.0 \
+  --device auto \
+  --resume work/artifacts/dragen_full_run0002/checkpoints/last.pt
+```
+
+`--epochs` 表示目标总 epoch 数。例如 `last.pt` 已经保存到第 4 轮，设置 `--epochs 10` 会从第 5 轮继续到第 10 轮。
+
 ### DRAGEN-Full 正式训练
 
 ```bash
@@ -259,7 +319,8 @@ python scripts/16_train_dragen_full.py \
   --lambda-align 0.001 \
   --lambda-uncertainty 0.001 \
   --lambda-role 0.0 \
-  --device auto
+  --device auto \
+  --seed 0
 ```
 
 ### 显存不足版本

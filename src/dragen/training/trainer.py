@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import json
+import random
+import time
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
@@ -18,6 +21,7 @@ from dragen.utils.progress import progress_iter
 
 
 def train_dragen_full(args: Any) -> Dict[str, Any]:
+    set_seed(args.seed)
     device = resolve_device(args.device)
     out_dir = Path(args.out_dir)
     (out_dir / "reports").mkdir(parents=True, exist_ok=True)
@@ -53,20 +57,70 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
     }
     best_score = -1.0
     history = []
-    for epoch in range(1, args.epochs + 1):
+    start_epoch = 1
+    if args.resume:
+        resume_state = load_checkpoint(Path(args.resume), model, optim, device)
+        start_epoch = int(resume_state.get("epoch", 0)) + 1
+        best_score = float(resume_state.get("best_score", best_score))
+        history = list(resume_state.get("history", []))
+        print(f"resumed from {args.resume}: start_epoch={start_epoch} best_score={best_score:.4f}", flush=True)
+    initialize_epoch_metrics(out_dir / "reports" / "epoch_metrics.csv", append=bool(args.resume))
+    loss_breakdown = {"history": history}
+    write_json(out_dir / "reports" / "loss_breakdown.json", loss_breakdown)
+    for epoch in range(start_epoch, args.epochs + 1):
+        epoch_started = time.time()
         print(f"epoch {epoch}/{args.epochs} start", flush=True)
         train_loss = train_one_epoch(model, loaders["train"], optim, weights, device, epoch=epoch, epochs=args.epochs)
-        valid_metrics, valid_breakdown = evaluate_loss_and_metrics(
-            model, loaders["valid"], weights, device, desc=f"valid epoch {epoch}/{args.epochs}"
+        should_eval = epoch % max(args.eval_every, 1) == 0 or epoch == args.epochs
+        valid_metrics: Dict[str, float] = {}
+        valid_breakdown: Dict[str, float] = {}
+        valid_loss = None
+        score = best_score
+        if should_eval:
+            valid_metrics, valid_breakdown = evaluate_loss_and_metrics(
+                model, loaders["valid"], weights, device, desc=f"valid epoch {epoch}/{args.epochs}"
+            )
+            valid_loss = float(valid_breakdown.get("loss_total", 0.0))
+            score = valid_metrics.get("auc", 0.0) or valid_metrics.get("f1", 0.0)
+        epoch_time_sec = time.time() - epoch_started
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "valid": valid_metrics,
+                "valid_loss": valid_breakdown,
+                "epoch_time_sec": epoch_time_sec,
+            }
         )
-        score = valid_metrics.get("auc", 0.0) or valid_metrics.get("f1", 0.0)
-        history.append({"epoch": epoch, "train_loss": train_loss, "valid": valid_metrics, "valid_loss": valid_breakdown})
-        print(f"epoch={epoch} train_loss={train_loss:.4f} valid_auc={valid_metrics['auc']:.4f} valid_f1={valid_metrics['f1']:.4f}")
-        if score >= best_score:
+        loss_breakdown = {"history": history}
+        write_json(out_dir / "reports" / "loss_breakdown.json", loss_breakdown)
+        append_epoch_metrics(
+            out_dir / "reports" / "epoch_metrics.csv",
+            epoch=epoch,
+            train_loss=train_loss,
+            valid_loss=valid_loss,
+            valid_metrics=valid_metrics,
+            lr=current_lr(optim),
+            epoch_time_sec=epoch_time_sec,
+        )
+        checkpoint = build_checkpoint(model, optim, args, epoch, best_score, history)
+        torch.save(checkpoint, out_dir / "checkpoints" / "last.pt")
+        if args.save_every_epoch:
+            torch.save(checkpoint, out_dir / "checkpoints" / f"epoch_{epoch}.pt")
+        if should_eval:
+            print(
+                f"epoch={epoch} train_loss={train_loss:.4f} valid_auc={valid_metrics['auc']:.4f} "
+                f"valid_f1={valid_metrics['f1']:.4f} epoch_time_sec={epoch_time_sec:.1f}",
+                flush=True,
+            )
+        else:
+            print(f"epoch={epoch} train_loss={train_loss:.4f} valid_skipped=1 epoch_time_sec={epoch_time_sec:.1f}", flush=True)
+        if should_eval and score >= best_score:
             best_score = score
-            torch.save({"model_state": model.state_dict(), "args": vars(args), "epoch": epoch}, out_dir / "checkpoints" / "best.pt")
+            checkpoint = build_checkpoint(model, optim, args, epoch, best_score, history)
+            torch.save(checkpoint, out_dir / "checkpoints" / "best.pt")
+            torch.save(checkpoint, out_dir / "checkpoints" / "last.pt")
     metrics = {}
-    loss_breakdown = {"history": history}
     for split in ["valid", "test"]:
         events, detail = collect_predictions(model, loaders[split], device, desc=f"export {split}")
         metrics[split] = export_prediction_files(out_dir, split, events, detail)
@@ -136,3 +190,110 @@ def resolve_device(name: str) -> torch.device:
     if name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(name)
+
+
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def initialize_epoch_metrics(path: Path, *, append: bool) -> None:
+    if append and path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=epoch_metric_fields())
+        writer.writeheader()
+        f.flush()
+
+
+def append_epoch_metrics(
+    path: Path,
+    *,
+    epoch: int,
+    train_loss: float,
+    valid_loss: float | None,
+    valid_metrics: Mapping[str, float],
+    lr: float,
+    epoch_time_sec: float,
+) -> None:
+    row = {
+        "epoch": epoch,
+        "train_loss": train_loss,
+        "valid_loss": valid_loss if valid_loss is not None else "",
+        "valid_accuracy": valid_metrics.get("accuracy", ""),
+        "valid_precision": valid_metrics.get("precision", ""),
+        "valid_recall": valid_metrics.get("recall", ""),
+        "valid_f1": valid_metrics.get("f1", ""),
+        "valid_auc": valid_metrics.get("auc", ""),
+        "valid_ap": valid_metrics.get("ap", ""),
+        "valid_mcc": valid_metrics.get("mcc", ""),
+        "lr": lr,
+        "epoch_time_sec": epoch_time_sec,
+    }
+    with path.open("a", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=epoch_metric_fields())
+        writer.writerow(row)
+        f.flush()
+
+
+def epoch_metric_fields() -> list[str]:
+    return [
+        "epoch",
+        "train_loss",
+        "valid_loss",
+        "valid_accuracy",
+        "valid_precision",
+        "valid_recall",
+        "valid_f1",
+        "valid_auc",
+        "valid_ap",
+        "valid_mcc",
+        "lr",
+        "epoch_time_sec",
+    ]
+
+
+def current_lr(optim: torch.optim.Optimizer) -> float:
+    return float(optim.param_groups[0].get("lr", 0.0)) if optim.param_groups else 0.0
+
+
+def build_checkpoint(
+    model: torch.nn.Module,
+    optim: torch.optim.Optimizer,
+    args: Any,
+    epoch: int,
+    best_score: float,
+    history: list[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    checkpoint: Dict[str, Any] = {
+        "model_state": model.state_dict(),
+        "optimizer_state": optim.state_dict(),
+        "epoch": epoch,
+        "best_score": best_score,
+        "args": vars(args),
+        "history": history,
+        "rng_state": torch.get_rng_state(),
+        "python_random_state": random.getstate(),
+    }
+    if torch.cuda.is_available():
+        checkpoint["cuda_rng_state_all"] = torch.cuda.get_rng_state_all()
+    return checkpoint
+
+
+def load_checkpoint(path: Path, model: torch.nn.Module, optim: torch.optim.Optimizer, device: torch.device) -> Mapping[str, Any]:
+    checkpoint = torch.load(path, map_location=device)
+    model.load_state_dict(checkpoint["model_state"])
+    if "optimizer_state" in checkpoint:
+        optim.load_state_dict(checkpoint["optimizer_state"])
+    else:
+        print("resume checkpoint has no optimizer_state; optimizer starts from current args", flush=True)
+    if "rng_state" in checkpoint:
+        torch.set_rng_state(checkpoint["rng_state"].cpu())
+    if torch.cuda.is_available() and "cuda_rng_state_all" in checkpoint:
+        torch.cuda.set_rng_state_all(checkpoint["cuda_rng_state_all"])
+    if "python_random_state" in checkpoint:
+        random.setstate(checkpoint["python_random_state"])
+    return checkpoint

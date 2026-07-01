@@ -19,6 +19,32 @@ Train config：
 ```text
 日期：2026-07-01
 Run ID：run_0002
+阶段：训练保存机制与断点续训
+分支：experiment/run-0002-code
+新增参数：
+  --seed
+  --resume
+  --save-every-epoch
+  --eval-every
+保存机制：
+  每个 epoch 结束后写 reports/epoch_metrics.csv
+  每个 epoch 结束后更新 reports/loss_breakdown.json
+  每个 epoch 结束后保存 checkpoints/last.pt
+  valid AUC/F1 刷新历史最优时保存 checkpoints/best.pt
+  开启 --save-every-epoch 时额外保存 checkpoints/epoch_{epoch}.pt
+断点续训：
+  python scripts/16_train_dragen_full.py ... --resume work/artifacts/dragen_full_run0002/checkpoints/last.pt
+验证：
+  python -m py_compile scripts/16_train_dragen_full.py src/dragen/training/trainer.py
+  极小样本 1 epoch 生成 epoch_metrics.csv / last.pt / best.pt
+  使用 --resume last.pt 成功从第 2 轮继续训练
+备注：
+  不修改模型结构，不修改 pack，不重建数据。
+```
+
+```text
+日期：2026-07-01
+Run ID：run_0002
 阶段：实验闭环输入、特征、弱标签、pack
 分支：experiment/run-0002-code
 策略：

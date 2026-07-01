@@ -39,6 +39,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-test-samples", type=int, default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--resume", default=None)
+    parser.add_argument("--save-every-epoch", action="store_true")
+    parser.add_argument("--eval-every", type=int, default=1)
     return parser.parse_args()
 
 

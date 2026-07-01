@@ -1,5 +1,6 @@
 # Local experiment outputs and datasets.
 /work/
+/graph/follow_edges.tsv
 
 # Python runtime caches.
 __pycache__/
