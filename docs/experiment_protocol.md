@@ -1,6 +1,6 @@
 # 实验流程
 
-本文档记录 DRAGEN 实验的流程约定。这里不实现训练逻辑，只说明每一步应该依赖哪些输入和输出。
+本文档记录 DRAGEN 实验的流程约定。当前预处理链路已经够用，后续不再扩展树和窗口设计，重点转入特征、弱标签、pack、训练评估和结果表。
 
 ## 1. 选择 run
 
@@ -91,64 +91,134 @@ work/runs/<run_id>/windows/obs_<obs>_win<window>_step<step>/
 - `root_text_window_rows` 是否等于 `num_cascades * windows_per_cascade`。
 - 四张 CSV 是否均存在。
 
-## 6. 结构重构实验线
+## 6. 冻结正式输入
 
-结构重构线独立于主模型效果实验，目标是比较星形边和代理传播树。
-
-先构建代理传播树：
-
-```powershell
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method branching_time --out-dir work/runs/run_0002/edges
-```
-
-再构建树形窗口：
-
-```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode inferred_tree
-```
-
-窗口目录必须分开：
+当前正式输入固定为三套：
 
 ```text
-windows/obs_1800_win300_step300_star/
-windows/obs_1800_win300_step300_tree/
+Fixed-5m Star:
+  work/runs/run_0002/windows/obs_1800_win300_step300/
+Fixed-5m HybridTree:
+  work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree/
+MultiScale HybridTree:
+  work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
 ```
 
-结构实验至少比较：
-
-- Star
-- TimeTree，作为线性化对照
-- BranchingTimeTree，当前默认树结构
-- FollowTree
-- HybridTree，轻量多证据主结构
-- HybridTree-w/o Text
-- HybridTree-w/o Follow
-
-报告指标包括 `avg_depth`、`max_depth`、`root_child_ratio`、`root_fallback_ratio`、`follow_parent_ratio`、`follow_supported_edge_ratio`、`parent_child_text_sim_mean`、`random_pair_text_sim_mean`、`text_sim_lift`、`same_or_adjacent_window_edge_ratio`、`top1_parent_child_ratio`、`top5_parent_child_ratio`、`branch_entropy`、`time_gap_mean`、`num_branching_parents` 和 `tree_valid_ratio`。
-
-## 7. 窗口策略实验线
-
-窗口实验和结构实验分开做。
-
-固定边结构为 HybridTree，比较窗口策略：
-
-- `Fixed-5m`：当前非重叠 5 分钟窗口。
-- `Causal-10m`：只使用端点对齐 10 分钟上下文窗口，后续可加。
-- `MultiScale`：current 5m + context 10m + cumulative history，主窗口策略。
-
-当前 MultiScale 调试命令：
+HybridTree Light 使用轻量多证据方法，不扫描关注图：
 
 ```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode star --max-cascades 10 --out-dir work/runs/run_0002/windows/_debug_obs_1800_step300_multiscale_star
+python scripts/06_build_inferred_tree.py --run-id run_0002 --method hybrid --max-observation-seconds 1800 --out-dir work/runs/run_0002/edges/hybrid_tree_light
 ```
 
 验收项：
 
-- `num_window_rows = cascades * 6`
-- `edge_window_table.csv` 中同时存在 `current` 和 `context`
-- `retweet_text_early_violations = 0`
+- `tree_valid_ratio = 1.0`
+- `invalid_time_edges = 0`
+- `root_child_ratio` 不接近 1
+- `text_sim_lift > 0`
 
-## 8. 训练和评估
+Fixed-5m HybridTree:
+
+```powershell
+python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree
+```
+
+MultiScale HybridTree:
+
+```powershell
+python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree
+```
+
+窗口验收项：
+
+- `num_window_rows = 85263 * 6`
+- `retweet_text_early_violations = 0`
+- `edge_window_rows > 0`
+- MultiScale 的 `edge_window_table.csv` 同时存在 `current` 和 `context`
+- MultiScale 的 `context_edges >= current_edges`
+
+后续不要继续做关注图全量扫描、RoBERTa、复杂情绪模型、1h/2h 多观测期或扩展结构消融，除非主实验闭环已经完成。
+
+## 7. 特征构建
+
+正式入口：
+
+```powershell
+python scripts/11_build_features.py --run-id run_0002 --tree-edges work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv
+```
+
+输出：
+
+```text
+work/runs/run_0002/features/obs_1800_win300_step300_star/
+work/runs/run_0002/features/obs_1800_win300_step300_hybrid_tree/
+work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree/
+```
+
+每个目录包含：
+
+```text
+window_features.csv
+node_window_features.csv
+feature_diagnostics.json
+```
+
+验收项：
+
+- `window_features` 行数等于对应 `window_table`
+- `node_window_features` 行数等于对应 `node_window_table`
+- `nan_count = 0`
+- `inf_count = 0`
+
+## 8. 弱监督标签
+
+正式入口：
+
+```powershell
+python scripts/12_build_weak_labels.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree
+```
+
+输出：
+
+```text
+work/runs/run_0002/labels/weak_event_labels.csv
+work/runs/run_0002/labels/label_diagnostics.json
+```
+
+标签规则：
+
+- top 20% `weak_score` 为 positive。
+- bottom 50% `weak_score` 为 negative。
+- middle 30% 为 ignore。
+- split 按 `cascade_idx` hash 划分 train/valid/test，不按窗口划分。
+
+## 9. Pack 构建
+
+正式入口：
+
+```powershell
+python scripts/13_build_packs.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree --labels work/runs/run_0002/labels/weak_event_labels.csv --out-dir work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree
+```
+
+输出：
+
+```text
+work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
+  train.pt
+  valid.pt
+  test.pt
+  meta.json
+  pack_diagnostics.json
+```
+
+当前 `.pt` 为 pickle stream，读取方式见 `meta.json`。验收项：
+
+- `T = 6`
+- train/valid/test 都有正负样本
+- `node_mask` 非空
+- `edge_alignment_errors = 0`
+
+## 10. 训练和评估
 
 训练和评估时必须记录：
 
@@ -162,6 +232,33 @@ python scripts/05_build_windows.py --run-id run_0002 --window-config configs/win
 
 没有记录这些配置的结果，不应该拿来做正式对比。
 
-## 9. 记录实验
+最小闭环顺序：
+
+```text
+CAC-Stat
+Campaign-GNN
+Temporal-GNN
+DRAGEN-Light
+w/o Tree
+w/o MultiScale
+w/o Role
+w/o Gate
+```
+
+## 11. 结果表
+
+最终结果表写入 `work/artifacts/reports/`：
+
+```text
+data_statistics.csv
+tree_compare_table.csv
+window_compare_table.csv
+main_results.csv
+ablation_results.csv
+```
+
+`work/` 不提交。需要提交的是 `docs/run_notes.md`、本协议和必要的结果摘要文档。
+
+## 12. 记录实验
 
 每次重要实验或结构调整都记录到 [run_notes.md](run_notes.md)。

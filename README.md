@@ -2,7 +2,7 @@
 
 DRAGEN 是一个用于级联预测实验的工程目录。当前目录的核心约定是：每批数据固定放在 `work/runs/<run_id>/`，命令入口放在 `scripts/`，真正的实现逻辑放在 `src/dragen/`。
 
-当前阶段已经完成工程结构、数据边界和 30m/5m 窗口划分入口。特征构建、模型训练等模块还没有作为正式入口暴露，等窗口表契约稳定后再继续实现。
+当前阶段已经完成工程结构、数据边界、30m/5m 窗口划分、HybridTree Light 全量树、MultiScale HybridTree 窗口、统计特征、弱监督标签和事件级 pack。后续重点转入 baseline、DRAGEN-Light、消融和结果表，不再继续扩展预处理结构。
 
 ## 目录结构
 
@@ -18,6 +18,8 @@ DRAGEN/
   tests/                   # 小规模验证测试。
   notebooks/               # 临时分析 notebook，不作为正式代码。
 ```
+
+`work/` 已在 `.gitignore` 中排除，不提交实验数据、窗口 CSV、pack、checkpoint 或报告产物。需要提交的是代码、配置和文档摘要。
 
 ## 数据原则
 
@@ -40,6 +42,17 @@ work/runs/<run_id>/windows/obs_<obs>_win<window>_step<step>/
 ```
 
 窗口构建不会修改 `processed/` 或 `org_task/` 下的原始中间表。
+
+当前实验闭环的本地产物约定如下：
+
+```text
+work/runs/<run_id>/edges/
+work/runs/<run_id>/windows/
+work/runs/<run_id>/features/
+work/runs/<run_id>/labels/
+work/runs/<run_id>/packs/
+work/artifacts/
+```
 
 ## 脚本原则
 
@@ -64,6 +77,9 @@ scripts/05_build_windows.py
 scripts/06_build_inferred_tree.py
 scripts/07_visualize_tree.py
 scripts/08_export_reports.py
+scripts/11_build_features.py
+scripts/12_build_weak_labels.py
+scripts/13_build_packs.py
 ```
 
 窗口入口会从 `work/runs/<run_id>/org_task/` 读取标准任务表，并写出四张窗口表。默认使用星形边：
@@ -97,20 +113,21 @@ root_text_window_rows: 511578
 retweet_text_early_violations: 0
 ```
 
-结构重构实验需要先构建代理传播树，再用树边重建窗口：
+当前正式树结构使用不扫描关注图的 HybridTree Light：
 
 ```powershell
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method branching_time --out-dir work/runs/run_0002/edges
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode inferred_tree
+python scripts/06_build_inferred_tree.py --run-id run_0002 --method hybrid --max-observation-seconds 1800 --out-dir work/runs/run_0002/edges/hybrid_tree_light
 ```
 
-树形窗口默认输出到：
+正式窗口输入有三套：
 
 ```text
-work/runs/run_0002/windows/obs_1800_win300_step300_tree/
+work/runs/run_0002/windows/obs_1800_win300_step300/
+work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree/
+work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
 ```
 
-注意：`time_only` 会把大级联构造成接近线性的深链，只作为结构对照或反例。正式树形结构默认使用 `branching_time`，它会用时间接近、深度惩罚、父节点活跃度和分支负载共同选择父节点。
+注意：`time_only` 会把大级联构造成接近线性的深链，只作为结构对照或反例。当前不继续扫描关注图，不继续扩展树结构设计。
 
 树形结构可视化入口：
 
@@ -123,13 +140,43 @@ python scripts/07_visualize_tree.py --run-id run_0002 --cascade-id 78857 --tree-
 - `Fixed-5m`：当前已生成的 baseline，非重叠 5 分钟窗口。
 - `Causal MultiScale`：端点对齐多尺度因果窗口，每 5 分钟一个端点，同时生成 current 5m、context 10m 和 cumulative 历史统计。
 
-MultiScale 调试命令：
+正式 MultiScale HybridTree 命令：
 
 ```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode star --max-cascades 10 --out-dir work/runs/run_0002/windows/_debug_obs_1800_step300_multiscale_star
+python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree
 ```
 
-没有实现完成的特征、训练、评估入口暂时不保留，避免把空壳脚本当成可运行流程。
+## 实验闭环入口
+
+统计特征：
+
+```powershell
+python scripts/11_build_features.py --run-id run_0002 --tree-edges work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv
+```
+
+输出：
+
+```text
+work/runs/run_0002/features/obs_1800_win300_step300_star/
+work/runs/run_0002/features/obs_1800_win300_step300_hybrid_tree/
+work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree/
+```
+
+弱监督标签：
+
+```powershell
+python scripts/12_build_weak_labels.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree
+```
+
+pack：
+
+```powershell
+python scripts/13_build_packs.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree --labels work/runs/run_0002/labels/weak_event_labels.csv --out-dir work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree
+```
+
+当前环境未安装 torch，`train.pt`、`valid.pt`、`test.pt` 是 pickle stream 格式；读取方式见对应 `meta.json`。
+
+下一步入口应优先补训练评估：CAC-Stat、Campaign-GNN、Temporal-GNN、DRAGEN-Light，以及 `w/o Tree`、`w/o MultiScale`、`w/o Role`、`w/o Gate` 四个消融。
 
 ## 文档
 
