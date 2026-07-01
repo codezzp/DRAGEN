@@ -187,3 +187,5 @@ python scripts/13_build_packs.py --run-id run_0002 --feature-dir work/runs/run_0
 - [docs/model_design.md](docs/model_design.md)：DRAGEN 模型边界和组件。
 - [docs/experiment_protocol.md](docs/experiment_protocol.md)：实验流程约定。
 - [docs/run_notes.md](docs/run_notes.md)：实验记录。
+- [docs/results_summary.md](docs/results_summary.md)：当前实验摘要。
+- [docs/server_experiment_guide.md](docs/server_experiment_guide.md)：服务器迁移与训练说明。
