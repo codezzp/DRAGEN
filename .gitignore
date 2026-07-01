@@ -1,2 +1,6 @@
 # Local experiment outputs and datasets.
 /work/
+
+# Python runtime caches.
+__pycache__/
+*.py[cod]

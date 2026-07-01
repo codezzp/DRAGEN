@@ -14,6 +14,81 @@ Train config：
 命令：
 输出：
 备注：
+``` 
+
+```text
+日期：2026-07-01
+Run ID：run_0002
+阶段：实验闭环输入、特征、弱标签、pack
+分支：experiment/run-0002-code
+策略：
+  不继续扩展结构设计；不扫描关注图；不上传 work/。
+  使用 30m 观测期、5m 步长，完成 Fixed-5m Star / Fixed-5m HybridTree / MultiScale HybridTree 三套正式输入。
+命令：
+  python scripts/06_build_inferred_tree.py --run-id run_0002 --method hybrid --max-observation-seconds 1800 --out-dir work/runs/run_0002/edges/hybrid_tree_light
+  python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree
+  python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree
+  python scripts/11_build_features.py --run-id run_0002 --tree-edges work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv
+  python scripts/12_build_weak_labels.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree
+  python scripts/13_build_packs.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree --labels work/runs/run_0002/labels/weak_event_labels.csv --out-dir work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree
+输出：
+  work/runs/run_0002/edges/hybrid_tree_light/
+  work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree/
+  work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
+  work/runs/run_0002/features/obs_1800_win300_step300_star/
+  work/runs/run_0002/features/obs_1800_win300_step300_hybrid_tree/
+  work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree/
+  work/runs/run_0002/labels/
+  work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
+结果：
+  HybridTree Light:
+    cascades = 85263
+    tree_edges = 1392078
+    tree_valid_ratio = 1.0
+    invalid_time_edges = 0
+    avg_depth = 7.50
+    max_depth = 32
+    root_child_ratio = 0.101
+    text_sim_lift = 0.00107
+  Fixed-5m HybridTree window:
+    window_rows = 511578
+    node_window_rows = 5940259
+    edge_window_rows = 1392078
+    text_window_rows = 6032866
+    retweet_text_early_violations = 0
+  MultiScale HybridTree window:
+    window_rows = 511578
+    node_window_rows = 5940259
+    edge_window_rows = 4019952
+    text_window_rows = 6032866
+    current_edges = 1392078
+    context_edges = 2627874
+    retweet_text_early_violations = 0
+  Feature v1:
+    三套输入均生成 window_features.csv / node_window_features.csv / feature_diagnostics.json
+    每套 window_features = 511578
+    每套 node_window_features = 5940259
+    nan_count = 0
+    inf_count = 0
+  Weak labels:
+    cascades = 85263
+    positive = 17053
+    negative = 42631
+    ignore = 25579
+    split = train 70% / valid 15% / test 15% by cascade_idx hash
+  Pack:
+    path = work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
+    format = pickle_stream stored as train.pt / valid.pt / test.pt
+    train = 41750
+    valid = 9175
+    test = 8759
+    total_samples = 59684
+    T = 6
+    node_mask empty = 0
+    edge_alignment_errors = 0
+备注：
+  当前环境未安装 torch，pack 使用 pickle stream 写入 .pt。读取方式见 meta.json。
+  下一步进入 baseline 与 DRAGEN-Light 训练评估，不再扩展预处理结构。
 ```
 
 ## 记录

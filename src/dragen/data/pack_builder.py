@@ -1,119 +1,317 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-检查 pack.sqlite 的结构和内容，用于验证打包结果。
-
-用法:
-  # 基本检查
-  python scripts/inspect_pack.py --pack work/deliverables/run_0001/pack.sqlite --cascades 3 --nodes 10
-
-  # 显示文本和用户信息（完整输出，不截断）
-  python scripts/inspect_pack.py --pack work/deliverables/run_0001/pack.sqlite --cascades 3 --nodes 10 --show_text --show_users
-
-  # 限制文本输出长度
-  python scripts/inspect_pack.py --pack work/deliverables/run_0001/pack.sqlite --show_text --show_users --sample_max_chars 200
-"""
+"""Build streamable event-level packs from feature, label, and edge tables."""
 
 from __future__ import annotations
 
 import argparse
-import sqlite3
+import csv
+import json
+import pickle
+from collections import defaultdict
 from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+import numpy as np
 
 
-def _print_table_info(cur: sqlite3.Cursor, table: str) -> None:
-    rows = cur.execute(f"PRAGMA table_info({table});").fetchall()
-    if not rows:
-        print(f"- {table}: <no table_info>")
-        return
-    cols = ", ".join([f"{r[1]}:{r[2]}" for r in rows])  # (cid,name,type,notnull,dflt,pk)
-    print(f"- {table}: {cols}")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_RUN_ID = "run_0002"
+
+WINDOW_FEATURE_COLUMNS = [
+    "num_retweets_cur",
+    "num_retweets_ctx",
+    "num_retweets_cum",
+    "num_active_users_cur",
+    "num_active_users_ctx",
+    "num_active_users_cum",
+    "num_edges_cur",
+    "num_edges_ctx",
+    "heat_cur",
+    "heat_ctx",
+    "heat_cum",
+    "delta_heat_cur",
+]
+
+NODE_FEATURE_COLUMNS = [
+    "is_root",
+    "first_seen_time",
+    "time_since_first_seen",
+    "num_posts_cur",
+    "num_posts_ctx",
+    "num_posts_cum",
+    "in_degree_cur",
+    "out_degree_cur",
+    "in_degree_ctx",
+    "out_degree_ctx",
+    "in_degree_cum",
+    "out_degree_cum",
+    "active_window_count",
+    "num_texts_cur",
+    "num_texts_visible",
+    "avg_text_len_cur",
+    "avg_text_len_visible",
+    "has_tree_feature",
+    "depth",
+    "parent_time_gap",
+    "parent_score",
+    "time_score",
+    "text_score",
+    "activity_score",
+    "depth_penalty",
+    "load_penalty",
+    "root_fallback_flag",
+]
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--pack", required=True, help="Path to pack.sqlite")
-    ap.add_argument("--cascades", type=int, default=3, help="How many cascades to show")
-    ap.add_argument("--nodes", type=int, default=10, help="How many nodes per cascade to show")
-    ap.add_argument("--show_text", action="store_true", help="Show text samples for first few post_idx")
-    ap.add_argument("--show_users", action="store_true", help="Show user profile samples for first few user_idx")
-    ap.add_argument(
-        "--sample_max_chars",
-        type=int,
-        default=0,
-        help="Max chars to print for text/profile samples (0 means no truncation)",
-    )
-    args = ap.parse_args()
+    args = parse_args()
+    run_dir = PROJECT_ROOT / "work" / "runs" / args.run_id
+    feature_dir = args.feature_dir or run_dir / "features" / "obs_1800_step300_multiscale_hybrid_tree"
+    window_dir = args.window_dir or run_dir / "windows" / "obs_1800_step300_multiscale_hybrid_tree"
+    labels_path = args.labels or run_dir / "labels" / "weak_event_labels.csv"
+    out_dir = args.out_dir or run_dir / "packs" / "obs_1800_step300_multiscale_hybrid_tree"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    pack = Path(args.pack)
-    if not pack.exists():
-        print(f"ERROR: pack not found: {pack}")
-        return 2
-
-    conn = sqlite3.connect(str(pack))
+    labels = read_labels(labels_path)
+    handles = {split: (out_dir / f"{split}.pt").open("wb") for split in ["train", "valid", "test"]}
+    diagnostics = init_diagnostics(feature_dir, window_dir, labels_path)
     try:
-        cur = conn.cursor()
-
-        tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;").fetchall()]
-        print("## Tables")
-        for t in tables:
-            print(f"- {t}")
-
-        print("\n## Schema")
-        for t in tables:
-            _print_table_info(cur, t)
-
-        if "meta" in tables:
-            print("\n## meta")
-            for k, v in cur.execute("SELECT k,v FROM meta ORDER BY k;").fetchall():
-                print(f"- {k} = {v}")
-
-        # Cascades samples
-        n_cascades = max(0, int(args.cascades))
-        n_nodes = max(0, int(args.nodes))
-        if "cascades" in tables and n_cascades > 0:
-            crows = cur.execute(
-                "SELECT cascade_idx, root_post_idx, root_user_idx, root_time_epoch "
-                "FROM cascades ORDER BY cascade_idx LIMIT ?;",
-                (n_cascades,),
-            ).fetchall()
-            print("\n## Cascades (first {})".format(n_cascades))
-            for r in crows:
-                print(f"- cascade_idx={r[0]} root_post_idx={r[1]} root_user_idx={r[2]} root_time_epoch={r[3]}")
-
-            if "nodes" in tables and n_nodes > 0:
-                print("\n## Nodes (per cascade, first {} nodes)".format(n_nodes))
-                for cidx, *_ in crows:
-                    rows = cur.execute(
-                        "SELECT node_idx, post_idx, user_idx, time_epoch, is_root "
-                        "FROM nodes WHERE cascade_idx=? ORDER BY node_idx LIMIT ?;",
-                        (int(cidx), n_nodes),
-                    ).fetchall()
-                    print(f"- cascade_idx={cidx} nodes={len(rows)}")
-                    for rr in rows:
-                        print(f"  node_idx={rr[0]} post_idx={rr[1]} user_idx={rr[2]} time_epoch={rr[3]} is_root={rr[4]}")
-
-        if args.show_text and "texts" in tables:
-            print("\n## Text samples (first 5)")
-            for post_idx, text in cur.execute("SELECT post_idx, text FROM texts ORDER BY post_idx LIMIT 5;").fetchall():
-                t = (text or "").replace("\n", "\\n")
-                if int(args.sample_max_chars) > 0 and len(t) > int(args.sample_max_chars):
-                    t = t[: int(args.sample_max_chars)] + "..."
-                print(f"- post_idx={post_idx} text={t!r}")
-
-        if args.show_users and "users" in tables:
-            print("\n## User profile samples (first 5)")
-            for user_idx, text in cur.execute("SELECT user_idx, profile_text FROM users ORDER BY user_idx LIMIT 5;").fetchall():
-                t = (text or "").replace("\n", "\\n")
-                if int(args.sample_max_chars) > 0 and len(t) > int(args.sample_max_chars):
-                    t = t[: int(args.sample_max_chars)] + "..."
-                print(f"- user_idx={user_idx} profile_text={t!r}")
-
-        return 0
+        build_packs(feature_dir, window_dir, labels, handles, diagnostics)
     finally:
-        conn.close()
+        for handle in handles.values():
+            handle.close()
+
+    meta = {
+        "format": "pickle_stream",
+        "reader_note": "Read records with repeated pickle.load(fp) until EOFError.",
+        "sample_keys": [
+            "cascade_idx",
+            "window_x",
+            "node_x",
+            "edge_index_current",
+            "edge_index_context",
+            "node_mask",
+            "y",
+        ],
+        "window_feature_columns": WINDOW_FEATURE_COLUMNS,
+        "node_feature_columns": NODE_FEATURE_COLUMNS,
+        "T": 6,
+    }
+    write_json(out_dir / "meta.json", meta)
+    finalize_diagnostics(diagnostics)
+    write_json(out_dir / "pack_diagnostics.json", diagnostics)
+    print(
+        f"Wrote packs to {out_dir} "
+        f"train={diagnostics['split_counts'].get('train', 0)} "
+        f"valid={diagnostics['split_counts'].get('valid', 0)} "
+        f"test={diagnostics['split_counts'].get('test', 0)}"
+    )
+    return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build streamable DRAGEN event packs.")
+    parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
+    parser.add_argument("--feature-dir", type=Path, default=None)
+    parser.add_argument("--window-dir", type=Path, default=None)
+    parser.add_argument("--labels", type=Path, default=None)
+    parser.add_argument("--out-dir", type=Path, default=None)
+    return parser.parse_args()
 
+
+def read_labels(path: Path) -> Dict[str, Dict[str, Any]]:
+    labels: Dict[str, Dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            labels[str(row["cascade_idx"])] = {
+                "weak_label": int(row["weak_label"]),
+                "split": row["split"],
+                "weak_score": float(row["weak_score"]),
+            }
+    return labels
+
+
+def build_packs(
+    feature_dir: Path,
+    window_dir: Path,
+    labels: Mapping[str, Mapping[str, Any]],
+    handles: Mapping[str, Any],
+    diagnostics: Dict[str, Any],
+) -> None:
+    window_groups = CsvGroupByCascade(feature_dir / "window_features.csv")
+    node_groups = CsvGroupByCascade(feature_dir / "node_window_features.csv")
+    edge_groups = CsvGroupByCascade(window_dir / "edge_window_table.csv")
+    try:
+        for cascade_idx in sorted(labels, key=lambda x: int(x)):
+            label = labels[cascade_idx]
+            if int(label["weak_label"]) < 0:
+                diagnostics["ignored_cascades"] += 1
+                continue
+            window_rows = window_groups.get(cascade_idx)
+            node_rows = node_groups.get(cascade_idx)
+            if not window_rows or not node_rows:
+                diagnostics["skipped_missing_feature"] += 1
+                continue
+            edge_rows = edge_groups.get(cascade_idx)
+            sample = make_sample(cascade_idx, window_rows, node_rows, edge_rows, int(label["weak_label"]))
+            split = str(label["split"])
+            pickle.dump(sample, handles[split], protocol=pickle.HIGHEST_PROTOCOL)
+            update_diagnostics(diagnostics, split, sample)
+    finally:
+        window_groups.close()
+        node_groups.close()
+        edge_groups.close()
+
+
+def make_sample(
+    cascade_idx: str,
+    window_rows: List[Mapping[str, str]],
+    node_rows: List[Mapping[str, str]],
+    edge_rows: List[Mapping[str, str]],
+    y: int,
+) -> Dict[str, Any]:
+    window_rows = sorted(window_rows, key=lambda row: int(row["window_idx"]))
+    window_ids = [int(row["window_idx"]) for row in window_rows]
+    window_pos = {window_idx: i for i, window_idx in enumerate(window_ids)}
+    T = len(window_rows)
+    window_x = np.asarray([[to_float(row[col]) for col in WINDOW_FEATURE_COLUMNS] for row in window_rows], dtype=np.float32)
+
+    users = sorted({str(row["user_idx"]) for row in node_rows}, key=lambda x: int(x))
+    user_pos = {user_idx: i for i, user_idx in enumerate(users)}
+    node_x = np.zeros((T, len(users), len(NODE_FEATURE_COLUMNS)), dtype=np.float32)
+    node_mask = np.zeros((T, len(users)), dtype=np.bool_)
+    for row in node_rows:
+        t = window_pos.get(int(row["window_idx"]))
+        n = user_pos.get(str(row["user_idx"]))
+        if t is None or n is None:
+            continue
+        node_x[t, n, :] = np.asarray([to_float(row[col]) for col in NODE_FEATURE_COLUMNS], dtype=np.float32)
+        node_mask[t, n] = True
+
+    edge_current: List[np.ndarray] = [np.zeros((2, 0), dtype=np.int64) for _ in range(T)]
+    edge_context: List[np.ndarray] = [np.zeros((2, 0), dtype=np.int64) for _ in range(T)]
+    current_lists: List[List[List[int]]] = [[[], []] for _ in range(T)]
+    context_lists: List[List[List[int]]] = [[[], []] for _ in range(T)]
+    for row in edge_rows:
+        t = window_pos.get(int(row["window_idx"]))
+        src = user_pos.get(str(row["src_user_idx"]))
+        dst = user_pos.get(str(row["dst_user_idx"]))
+        if t is None or src is None or dst is None:
+            continue
+        target = context_lists if row.get("window_scope") == "context" else current_lists
+        target[t][0].append(src)
+        target[t][1].append(dst)
+    for i in range(T):
+        if current_lists[i][0]:
+            edge_current[i] = np.asarray(current_lists[i], dtype=np.int64)
+        if context_lists[i][0]:
+            edge_context[i] = np.asarray(context_lists[i], dtype=np.int64)
+
+    return {
+        "cascade_idx": int(cascade_idx),
+        "window_x": window_x,
+        "node_x": node_x,
+        "edge_index_current": edge_current,
+        "edge_index_context": edge_context,
+        "node_mask": node_mask,
+        "y": int(y),
+    }
+
+
+class CsvGroupByCascade:
+    def __init__(self, path: Path) -> None:
+        self._file = path.open("r", encoding="utf-8-sig", newline="")
+        self._reader = csv.DictReader(self._file)
+        self._pending: Optional[Dict[str, str]] = None
+        self._current_key: Optional[int] = None
+        self._current_rows: List[Dict[str, str]] = []
+        self._done = False
+
+    def get(self, cascade_idx: str) -> List[Dict[str, str]]:
+        target = int(cascade_idx)
+        while not self._done and (self._current_key is None or self._current_key < target):
+            self._load_next()
+        if self._current_key == target:
+            return self._current_rows
+        return []
+
+    def close(self) -> None:
+        self._file.close()
+
+    def _load_next(self) -> None:
+        first = self._pending
+        if first is None:
+            try:
+                first = next(self._reader)
+            except StopIteration:
+                self._done = True
+                self._current_key = None
+                self._current_rows = []
+                return
+        self._pending = None
+        key = int(first["cascade_idx"])
+        rows = [first]
+        for row in self._reader:
+            row_key = int(row["cascade_idx"])
+            if row_key != key:
+                self._pending = row
+                break
+            rows.append(row)
+        self._current_key = key
+        self._current_rows = rows
+
+
+def init_diagnostics(feature_dir: Path, window_dir: Path, labels_path: Path) -> Dict[str, Any]:
+    return {
+        "feature_dir": str(feature_dir),
+        "window_dir": str(window_dir),
+        "labels": str(labels_path),
+        "format": "pickle_stream",
+        "split_counts": defaultdict(int),
+        "split_label_counts": defaultdict(lambda: defaultdict(int)),
+        "ignored_cascades": 0,
+        "skipped_missing_feature": 0,
+        "total_samples": 0,
+        "min_T": None,
+        "max_T": 0,
+        "min_nodes": None,
+        "max_nodes": 0,
+        "empty_node_mask": 0,
+        "edge_alignment_errors": 0,
+    }
+
+
+def update_diagnostics(diagnostics: Dict[str, Any], split: str, sample: Mapping[str, Any]) -> None:
+    T = int(sample["window_x"].shape[0])
+    nodes = int(sample["node_x"].shape[1])
+    diagnostics["split_counts"][split] += 1
+    diagnostics["split_label_counts"][split][str(sample["y"])] += 1
+    diagnostics["total_samples"] += 1
+    diagnostics["min_T"] = T if diagnostics["min_T"] is None else min(diagnostics["min_T"], T)
+    diagnostics["max_T"] = max(diagnostics["max_T"], T)
+    diagnostics["min_nodes"] = nodes if diagnostics["min_nodes"] is None else min(diagnostics["min_nodes"], nodes)
+    diagnostics["max_nodes"] = max(diagnostics["max_nodes"], nodes)
+    if not bool(sample["node_mask"].any()):
+        diagnostics["empty_node_mask"] += 1
+    for edge_list in [sample["edge_index_current"], sample["edge_index_context"]]:
+        for edge_index in edge_list:
+            if edge_index.size and (edge_index.max() >= nodes or edge_index.min() < 0):
+                diagnostics["edge_alignment_errors"] += 1
+
+
+def finalize_diagnostics(diagnostics: Dict[str, Any]) -> None:
+    diagnostics["split_counts"] = dict(diagnostics["split_counts"])
+    diagnostics["split_label_counts"] = {
+        split: dict(counts) for split, counts in diagnostics["split_label_counts"].items()
+    }
+
+
+def to_float(value: Any) -> float:
+    if value in (None, ""):
+        return 0.0
+    return float(value)
+
+
+def write_json(path: Path, data: Mapping[str, Any]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
