@@ -11,10 +11,17 @@ import torch
 
 from dragen.data.feature_schema import ROLE_NAMES
 from dragen.evaluation.metrics import binary_metrics
+from dragen.utils.progress import progress_iter
 
 
 @torch.no_grad()
-def collect_predictions(model: torch.nn.Module, loader: Iterable[Mapping[str, Any]], device: torch.device) -> tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]:
+def collect_predictions(
+    model: torch.nn.Module,
+    loader: Iterable[Mapping[str, Any]],
+    device: torch.device,
+    *,
+    desc: str = "export",
+) -> tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]:
     model.eval()
     event_rows: List[Dict[str, Any]] = []
     detail = {
@@ -25,7 +32,9 @@ def collect_predictions(model: torch.nn.Module, loader: Iterable[Mapping[str, An
         "event_attention": [],
         "sampled_neighbors": [],
     }
-    for batch in loader:
+    total = len(loader) if hasattr(loader, "__len__") else None
+    every = max((total or 10) // 10, 1)
+    for batch in progress_iter(loader, total=total, desc=desc, every=every):
         batch = move_batch_to_device(batch, device)
         out = model(batch)
         B, T, N = out["node_prob"].shape

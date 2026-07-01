@@ -26,6 +26,7 @@ git log --oneline -1
 Python >= 3.10
 PyTorch >= 2.1
 NumPy >= 1.24
+tqdm >= 4.66
 ```
 
 CPU 环境：
@@ -38,7 +39,7 @@ GPU 服务器建议按服务器 CUDA 版本安装 PyTorch。例如 CUDA 12.1：
 
 ```bash
 python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
-python -m pip install numpy pytest
+python -m pip install numpy pytest tqdm
 ```
 
 验证：

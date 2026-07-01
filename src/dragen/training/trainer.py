@@ -14,6 +14,7 @@ from dragen.evaluation.export_predictions import collect_predictions, export_pre
 from dragen.evaluation.metrics import binary_metrics
 from dragen.models.dragen_full import DRAGENFull
 from dragen.training.losses import dragen_full_loss
+from dragen.utils.progress import progress_iter
 
 
 def train_dragen_full(args: Any) -> Dict[str, Any]:
@@ -22,6 +23,10 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
     (out_dir / "reports").mkdir(parents=True, exist_ok=True)
     (out_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
     datasets = make_datasets(args.pack_dir, args.max_train_samples, args.max_valid_samples, args.max_test_samples)
+    print(
+        f"dataset sizes: train={len(datasets['train'])} valid={len(datasets['valid'])} test={len(datasets['test'])}",
+        flush=True,
+    )
     loaders = {
         split: DataLoader(ds, batch_size=args.batch_size, shuffle=(split == "train"), collate_fn=collate_fn)
         for split, ds in datasets.items()
@@ -49,8 +54,11 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
     best_score = -1.0
     history = []
     for epoch in range(1, args.epochs + 1):
-        train_loss = train_one_epoch(model, loaders["train"], optim, weights, device)
-        valid_metrics, valid_breakdown = evaluate_loss_and_metrics(model, loaders["valid"], weights, device)
+        print(f"epoch {epoch}/{args.epochs} start", flush=True)
+        train_loss = train_one_epoch(model, loaders["train"], optim, weights, device, epoch=epoch, epochs=args.epochs)
+        valid_metrics, valid_breakdown = evaluate_loss_and_metrics(
+            model, loaders["valid"], weights, device, desc=f"valid epoch {epoch}/{args.epochs}"
+        )
         score = valid_metrics.get("auc", 0.0) or valid_metrics.get("f1", 0.0)
         history.append({"epoch": epoch, "train_loss": train_loss, "valid": valid_metrics, "valid_loss": valid_breakdown})
         print(f"epoch={epoch} train_loss={train_loss:.4f} valid_auc={valid_metrics['auc']:.4f} valid_f1={valid_metrics['f1']:.4f}")
@@ -60,18 +68,27 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
     metrics = {}
     loss_breakdown = {"history": history}
     for split in ["valid", "test"]:
-        events, detail = collect_predictions(model, loaders[split], device)
+        events, detail = collect_predictions(model, loaders[split], device, desc=f"export {split}")
         metrics[split] = export_prediction_files(out_dir, split, events, detail)
     write_json(out_dir / "reports" / "metrics.json", metrics)
     write_json(out_dir / "reports" / "loss_breakdown.json", loss_breakdown)
     return {"metrics": metrics, "history": history}
 
 
-def train_one_epoch(model: torch.nn.Module, loader: DataLoader, optim: torch.optim.Optimizer, weights: Dict[str, float], device: torch.device) -> float:
+def train_one_epoch(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    optim: torch.optim.Optimizer,
+    weights: Dict[str, float],
+    device: torch.device,
+    *,
+    epoch: int,
+    epochs: int,
+) -> float:
     model.train()
     total = 0.0
     count = 0
-    for batch in loader:
+    for batch in progress_iter(loader, total=len(loader), desc=f"train epoch {epoch}/{epochs}", every=max(len(loader) // 20, 1)):
         batch = move_batch_to_device(batch, device)
         optim.zero_grad(set_to_none=True)
         out = model(batch)
@@ -90,13 +107,20 @@ def train_one_epoch(model: torch.nn.Module, loader: DataLoader, optim: torch.opt
 
 
 @torch.no_grad()
-def evaluate_loss_and_metrics(model: torch.nn.Module, loader: DataLoader, weights: Dict[str, float], device: torch.device) -> tuple[Dict[str, float], Dict[str, float]]:
+def evaluate_loss_and_metrics(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    weights: Dict[str, float],
+    device: torch.device,
+    *,
+    desc: str = "valid",
+) -> tuple[Dict[str, float], Dict[str, float]]:
     model.eval()
     y_true = []
     y_prob = []
     breakdown_sum: Dict[str, float] = {}
     count = 0
-    for batch in loader:
+    for batch in progress_iter(loader, total=len(loader), desc=desc, every=max(len(loader) // 10, 1)):
         batch = move_batch_to_device(batch, device)
         out = model(batch)
         _, breakdown = dragen_full_loss(out, batch, weights)

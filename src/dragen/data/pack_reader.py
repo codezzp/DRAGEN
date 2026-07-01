@@ -17,13 +17,16 @@ from dragen.data.feature_schema import DEFAULT_SCHEMA, FeatureSchema, schema_fro
 class PickleStreamDataset(Dataset):
     """A small-index wrapper around the current pickle-stream .pt pack format."""
 
-    def __init__(self, path: Path | str, max_samples: Optional[int] = None) -> None:
+    def __init__(self, path: Path | str, max_samples: Optional[int] = None, split: str | None = None) -> None:
         self.path = Path(path)
         self.samples: List[Dict[str, Any]] = []
         for sample in iter_pickle_stream(self.path):
             self.samples.append(sample)
             if max_samples is not None and len(self.samples) >= max_samples:
                 break
+        label = split or self.path.stem
+        limit = f", limit={max_samples}" if max_samples is not None else ""
+        print(f"loaded {label}: {len(self.samples)} samples from {self.path}{limit}", flush=True)
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -53,9 +56,9 @@ def read_pack_meta(pack_dir: Path | str) -> tuple[Mapping[str, Any], FeatureSche
 def make_datasets(pack_dir: Path | str, max_train: int | None = None, max_valid: int | None = None, max_test: int | None = None) -> Dict[str, PickleStreamDataset]:
     base = Path(pack_dir)
     return {
-        "train": PickleStreamDataset(base / "train.pt", max_train),
-        "valid": PickleStreamDataset(base / "valid.pt", max_valid),
-        "test": PickleStreamDataset(base / "test.pt", max_test),
+        "train": PickleStreamDataset(base / "train.pt", max_train, "train"),
+        "valid": PickleStreamDataset(base / "valid.pt", max_valid, "valid"),
+        "test": PickleStreamDataset(base / "test.pt", max_test, "test"),
     }
 
 
