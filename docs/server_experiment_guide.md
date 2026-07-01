@@ -170,6 +170,268 @@ work/artifacts/dragen_full_debug/predictions/sampled_global_neighbors.csv
 work/artifacts/dragen_full_debug/checkpoints/best.pt
 ```
 
+## 6.1 服务器根目录 packs 快速命令
+
+如果你已经把 pack 目录放在项目根目录下：
+
+```text
+packs/
+  obs_1800_step300_multiscale_hybrid_tree/
+  obs_1800_win300_step300_star/
+  obs_1800_win300_step300_hybrid_tree/
+```
+
+则后续命令统一使用 `packs/...`，不再使用 `work/runs/run_0002/packs/...`。
+
+先确认文件：
+
+```bash
+ls packs
+ls packs/obs_1800_step300_multiscale_hybrid_tree
+```
+
+每个 pack 目录应包含：
+
+```text
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
+```
+
+服务器先更新代码和依赖：
+
+```bash
+git pull
+python -m pip install -r requirements.txt
+```
+
+确认 PyTorch 和 tqdm：
+
+```bash
+python - <<'PY'
+import torch
+import tqdm
+print("torch", torch.__version__)
+print("cuda_available", torch.cuda.is_available())
+print("tqdm", tqdm.__version__)
+PY
+```
+
+### Debug
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/dragen_full_debug \
+  --epochs 1 \
+  --batch-size 2 \
+  --max-train-samples 200 \
+  --max-valid-samples 100 \
+  --max-test-samples 100 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lambda-jump 0.01 \
+  --lambda-struct 0.005 \
+  --lambda-align 0.001 \
+  --lambda-uncertainty 0.001 \
+  --lambda-role 0.0 \
+  --device auto
+```
+
+### DRAGEN-Full 正式训练
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/dragen_full_run0002 \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --weight-decay 0.00001 \
+  --lambda-jump 0.01 \
+  --lambda-struct 0.005 \
+  --lambda-align 0.001 \
+  --lambda-uncertainty 0.001 \
+  --lambda-role 0.0 \
+  --device auto
+```
+
+### 显存不足版本
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/dragen_full_run0002_small \
+  --epochs 10 \
+  --batch-size 2 \
+  --hidden-dim 32 \
+  --role-num 5 \
+  --top-k-global 10 \
+  --lr 0.001 \
+  --weight-decay 0.00001 \
+  --lambda-jump 0.01 \
+  --lambda-struct 0.005 \
+  --lambda-align 0.001 \
+  --lambda-uncertainty 0.001 \
+  --lambda-role 0.0 \
+  --device auto
+```
+
+### w/o Tree
+
+使用 Fixed-5m Star pack：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --pack-dir packs/obs_1800_win300_step300_star \
+  --out-dir work/artifacts/ablation_no_tree \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --weight-decay 0.00001 \
+  --lambda-jump 0.01 \
+  --lambda-struct 0.005 \
+  --lambda-align 0.001 \
+  --lambda-uncertainty 0.001 \
+  --lambda-role 0.0 \
+  --device auto
+```
+
+### w/o MultiScale
+
+使用 Fixed-5m HybridTree pack：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --pack-dir packs/obs_1800_win300_step300_hybrid_tree \
+  --out-dir work/artifacts/ablation_no_multiscale \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --weight-decay 0.00001 \
+  --lambda-jump 0.01 \
+  --lambda-struct 0.005 \
+  --lambda-align 0.001 \
+  --lambda-uncertainty 0.001 \
+  --lambda-role 0.0 \
+  --device auto
+```
+
+### 模块消融
+
+以下消融都使用 MultiScale HybridTree pack。
+
+```bash
+python scripts/17_run_ablation.py \
+  --ablation no_role \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/ablation_no_role \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --device auto
+```
+
+```bash
+python scripts/17_run_ablation.py \
+  --ablation no_memory \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/ablation_no_memory \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --device auto
+```
+
+```bash
+python scripts/17_run_ablation.py \
+  --ablation no_global_prior \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/ablation_no_global_prior \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --device auto
+```
+
+```bash
+python scripts/17_run_ablation.py \
+  --ablation no_adaptive_sampling \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/ablation_no_adaptive_sampling \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --device auto
+```
+
+```bash
+python scripts/17_run_ablation.py \
+  --ablation no_gate \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/ablation_no_gate \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --device auto
+```
+
+```bash
+python scripts/17_run_ablation.py \
+  --ablation no_uncertainty \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree \
+  --out-dir work/artifacts/ablation_no_uncertainty \
+  --epochs 10 \
+  --batch-size 8 \
+  --hidden-dim 64 \
+  --role-num 5 \
+  --top-k-global 20 \
+  --lr 0.001 \
+  --device auto
+```
+
+建议运行顺序：
+
+```text
+1. dragen_full_debug
+2. dragen_full_run0002
+3. ablation_no_tree
+4. ablation_no_multiscale
+5. ablation_no_role
+6. ablation_no_memory
+7. ablation_no_global_prior
+8. ablation_no_adaptive_sampling
+9. ablation_no_gate
+10. ablation_no_uncertainty
+```
+
 ## 7. 正式训练
 
 ```bash
