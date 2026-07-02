@@ -96,6 +96,10 @@ def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
             "max_valid_samples": "max_valid_samples",
             "max_test_samples": "max_test_samples",
             "eval_every": "eval_every",
+            "num_workers": "num_workers",
+            "pin_memory": "pin_memory",
+            "persistent_workers": "persistent_workers",
+            "prefetch_factor": "prefetch_factor",
         },
     )
     merge_section(
@@ -113,7 +117,7 @@ def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
         },
     )
     merge_section(out, config.get("output"), {"out_dir": "out_dir", "main_out": "main_out", "risk_out": "risk_out", "ablation_out": "ablation_out"})
-    merge_section(out, config.get("logging"), {"tensorboard": "tensorboard", "tb_log_dir": "tb_log_dir"})
+    merge_section(out, config.get("logging"), {"tensorboard": "tensorboard", "tb_log_dir": "tb_log_dir", "plot_every_epoch": "plot_every_epoch"})
     merge_section(out, config.get("checkpoint"), {"resume": "resume", "save_every_epoch": "save_every_epoch"})
     merge_section(
         out,

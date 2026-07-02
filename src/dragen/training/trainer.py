@@ -23,6 +23,7 @@ from dragen.evaluation.export_predictions import collect_predictions, export_pre
 from dragen.evaluation.metrics import binary_metrics
 from dragen.models.dragen_full import DRAGENFull
 from dragen.training.losses import dragen_full_loss
+from dragen.evaluation.training_curves import plot_training_curves
 from dragen.utils.progress import progress_iter
 
 
@@ -38,8 +39,10 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         f"dataset sizes: train={len(datasets['train'])} valid={len(datasets['valid'])} test={len(datasets['test'])}",
         flush=True,
     )
+    loader_kwargs = build_dataloader_kwargs(args, device)
+    print(f"dataloader kwargs: {loader_kwargs}", flush=True)
     loaders = {
-        split: DataLoader(ds, batch_size=args.batch_size, shuffle=(split == "train"), collate_fn=collate_fn)
+        split: DataLoader(ds, batch_size=args.batch_size, shuffle=(split == "train"), collate_fn=collate_fn, **loader_kwargs)
         for split, ds in datasets.items()
     }
     model = DRAGENFull(
@@ -124,6 +127,8 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
             lr=current_lr(optim),
             epoch_time_sec=epoch_time_sec,
         )
+        if getattr(args, "plot_every_epoch", True):
+            plot_training_curves(out_dir / "reports" / "epoch_metrics.csv", out_dir / "reports" / "loss_breakdown.json", out_dir / "reports" / "training_curves.png")
         checkpoint = build_checkpoint(model, optim, args, epoch, best_score, history)
         torch.save(checkpoint, out_dir / "checkpoints" / "last.pt")
         if args.save_every_epoch:
@@ -152,6 +157,27 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
     return {"metrics": metrics, "history": history}
 
 
+def build_dataloader_kwargs(args: Any, device: torch.device) -> Dict[str, Any]:
+    num_workers = max(int(getattr(args, "num_workers", 0) or 0), 0)
+    pin_memory_arg = getattr(args, "pin_memory", None)
+    pin_memory = bool(device.type == "cuda") if pin_memory_arg is None else bool(pin_memory_arg)
+    persistent_arg = getattr(args, "persistent_workers", None)
+    persistent_workers = bool(num_workers > 0) if persistent_arg is None else bool(persistent_arg and num_workers > 0)
+    kwargs: Dict[str, Any] = {
+        "num_workers": num_workers,
+        "pin_memory": pin_memory,
+        "persistent_workers": persistent_workers,
+    }
+    prefetch_factor = getattr(args, "prefetch_factor", None)
+    if num_workers > 0 and prefetch_factor is not None:
+        kwargs["prefetch_factor"] = max(int(prefetch_factor), 1)
+    return kwargs
+
+
+def use_non_blocking_transfer(loader: DataLoader) -> bool:
+    return bool(getattr(loader, "pin_memory", False) and torch.cuda.is_available())
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     loader: DataLoader,
@@ -166,7 +192,7 @@ def train_one_epoch(
     total = 0.0
     count = 0
     for batch in progress_iter(loader, total=len(loader), desc=f"train epoch {epoch}/{epochs}", every=max(len(loader) // 20, 1)):
-        batch = move_batch_to_device(batch, device)
+        batch = move_batch_to_device(batch, device, non_blocking=use_non_blocking_transfer(loader))
         optim.zero_grad(set_to_none=True)
         out = model(batch)
         loss, _ = dragen_full_loss(out, batch, weights)
@@ -198,7 +224,7 @@ def evaluate_loss_and_metrics(
     breakdown_sum: Dict[str, float] = {}
     count = 0
     for batch in progress_iter(loader, total=len(loader), desc=desc, every=max(len(loader) // 10, 1)):
-        batch = move_batch_to_device(batch, device)
+        batch = move_batch_to_device(batch, device, non_blocking=use_non_blocking_transfer(loader))
         out = model(batch)
         _, breakdown = dragen_full_loss(out, batch, weights)
         for k, v in breakdown.items():

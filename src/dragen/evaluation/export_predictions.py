@@ -144,17 +144,17 @@ def write_json(path: Path, data: Mapping[str, Any]) -> None:
         f.write("\n")
 
 
-def move_batch_to_device(batch: Mapping[str, Any], device: torch.device) -> Dict[str, Any]:
-    return {key: move_value_to_device(value, device) for key, value in batch.items()}
+def move_batch_to_device(batch: Mapping[str, Any], device: torch.device, *, non_blocking: bool = False) -> Dict[str, Any]:
+    return {key: move_value_to_device(value, device, non_blocking=non_blocking) for key, value in batch.items()}
 
 
-def move_value_to_device(value: Any, device: torch.device) -> Any:
+def move_value_to_device(value: Any, device: torch.device, *, non_blocking: bool = False) -> Any:
     if torch.is_tensor(value):
-        return value.to(device)
+        return value.to(device, non_blocking=non_blocking)
     if isinstance(value, list):
-        return [move_value_to_device(item, device) for item in value]
+        return [move_value_to_device(item, device, non_blocking=non_blocking) for item in value]
     if isinstance(value, tuple):
-        return tuple(move_value_to_device(item, device) for item in value)
+        return tuple(move_value_to_device(item, device, non_blocking=non_blocking) for item in value)
     if isinstance(value, dict):
-        return {key: move_value_to_device(item, device) for key, item in value.items()}
+        return {key: move_value_to_device(item, device, non_blocking=non_blocking) for key, item in value.items()}
     return value

@@ -96,6 +96,37 @@ python scripts/16_train_dragen_full.py \
 tensorboard --logdir work/artifacts --host 0.0.0.0 --port 6006
 ```
 
+## 训练曲线
+
+配置里启用 `plot_every_epoch` 后，训练会写出曲线汇总文件：
+
+```text
+<out-dir>/reports/training_curves.png
+```
+
+如果当前环境没有安装 `matplotlib`，会自动写出 HTML 版本：
+
+```text
+<out-dir>/reports/training_curves.html
+```
+
+训练结束后也可以从已有 report 文件重新生成：
+
+```bash
+python scripts/20_plot_training_curves.py --artifact-dir work/artifacts/dragen_follow_adaptive_label_v5_seed0
+```
+
+## DataLoader 参数覆盖
+
+GPU 服务器上，当前标签配置默认从 `num_workers: 4` 起步。只有在调吞吐时，才需要用 CLI 临时覆盖：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5.yaml \
+  --num-workers 8 \
+  --prefetch-factor 2
+```
+
 ## Result Tables
 
 ```bash

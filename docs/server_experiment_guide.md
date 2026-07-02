@@ -1060,6 +1060,27 @@ Then run full Label-v5 training:
 python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
 ```
 
+服务器上可以不改 YAML，直接用 CLI 临时覆盖 DataLoader worker 参数：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5.yaml \
+  --num-workers 8 \
+  --prefetch-factor 2
+```
+
+训练曲线会写到：
+
+```text
+<out-dir>/reports/training_curves.png
+```
+
+如果服务器环境没有安装 `matplotlib`，DRAGEN 会自动写出 HTML fallback：
+
+```text
+<out-dir>/reports/training_curves.html
+```
+
 If Label-v5 is too small or unstable, run Label-v4 as the fallback formal label:
 
 ```bash
@@ -1082,6 +1103,7 @@ If checkpoint files are too large, copy at least:
 reports/metrics.json
 reports/loss_breakdown.json
 reports/epoch_metrics.csv
+reports/training_curves.png 或 reports/training_curves.html
 reports/resolved_config.yaml
 reports/command.txt
 reports/git_info.json

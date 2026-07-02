@@ -35,6 +35,9 @@ train:
   max_valid_samples: 100
   max_test_samples: 100
   eval_every: 1
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
 
 loss:
   lambda_jump: 0.01
@@ -45,6 +48,7 @@ loss:
 
 logging:
   tensorboard: false
+  plot_every_epoch: true
   tb_log_dir:
 
 checkpoint:

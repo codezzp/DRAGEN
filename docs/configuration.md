@@ -109,12 +109,16 @@ train:
   seed: 0
   device: auto
   eval_every: 1
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
   max_train_samples:
   max_valid_samples:
   max_test_samples:
 ```
 
-`max_*_samples` should be used only for debug configs.
+`max_*_samples` 只用于 debug 配置。GPU 训练建议先使用 `num_workers: 4`、`pin_memory: true`、`persistent_workers: true`、`prefetch_factor: 2`。如果 CPU 内存压力较大，或者 worker 启动开销反而拖慢训练，把 `num_workers` 降到 `2` 或 `0`。
 
 ### `loss`
 
@@ -147,6 +151,7 @@ output:
 logging:
   tensorboard: true
   tb_log_dir:
+  plot_every_epoch: true
 
 checkpoint:
   resume:
@@ -296,6 +301,48 @@ model:
 ```
 
 For `w/o Tree` and `w/o MultiScale`, change `data.pack_dir` to the corresponding pack variant instead of toggling a model flag.
+
+## DataLoader 性能配置
+
+训练配置可以在 `train` 段调整 PyTorch DataLoader 的并行读取和预取参数：
+
+```yaml
+train:
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+```
+
+推荐起点：
+
+```text
+GPU 服务器：num_workers=4, pin_memory=true, persistent_workers=true, prefetch_factor=2
+CPU/debug： num_workers=0, pin_memory=false, persistent_workers=false
+大内存服务器：确认 CPU 内存稳定后，可以尝试 num_workers=8
+```
+
+`pin_memory` 可以加快 CPU 到 GPU 的数据传输；启用 pinned memory 后，trainer 会使用 non-blocking transfer。`persistent_workers` 可以避免每个 epoch 重启 worker，但只有 `num_workers > 0` 时才生效。
+
+## 指标可视化
+
+当 `logging.tensorboard: true` 时，训练会写入 TensorBoard scalar。现在如果开启 `logging.plot_every_epoch: true`，每个 epoch 后还会额外生成一份静态曲线图：
+
+```text
+<out_dir>/reports/training_curves.png
+```
+
+如果服务器环境没有安装 `matplotlib`，trainer 会自动退化为 HTML 曲线文件：
+
+```text
+<out_dir>/reports/training_curves.html
+```
+
+曲线包含 train/valid loss、验证集 AUC/AP/F1/MCC、precision/recall/accuracy、epoch 耗时，以及 PNG 可用时的部分 loss breakdown。也可以训练后手动重新生成：
+
+```bash
+python scripts/20_plot_training_curves.py --artifact-dir work/artifacts/dragen_follow_adaptive_label_v5_seed0
+```
 
 ## Reproducibility Metadata
 

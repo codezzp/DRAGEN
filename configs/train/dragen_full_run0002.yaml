@@ -32,6 +32,10 @@ train:
   seed: 0
   device: auto
   eval_every: 1
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
 
 loss:
   lambda_jump: 0.01
@@ -46,6 +50,7 @@ loss:
 logging:
   tensorboard: true
   tb_log_dir:
+  plot_every_epoch: true
 
 checkpoint:
   resume:
