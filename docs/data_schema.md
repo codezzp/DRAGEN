@@ -422,3 +422,45 @@ sample = {
 - `d_w = 12`
 - `d_n = 27`
 - `y` 只包含 `0` 和 `1`，ignore cascade 不进入 pack。
+
+
+## 2026-07-02 Schema Update: Global Candidate Edges and Label Versions
+
+Pack samples may now include offline global follow candidate fields:
+
+```text
+global_candidate_edge_index:  [2, E_cand]
+global_candidate_edge_weight: [E_cand]
+```
+
+These fields are candidate pools only. They are not final sampled neighbors. Final sampled neighbors are produced inside `AdaptiveGlobalSampler.forward()` for each batch/window.
+
+The default Label-v1 file remains:
+
+```text
+work/runs/<run_id>/labels/weak_event_labels.csv
+```
+
+Formal Label-v2 should be written separately:
+
+```text
+work/runs/<run_id>/labels_v2_stratified_score/weak_event_labels.csv
+work/runs/<run_id>/labels_v2_stratified_score/label_diagnostics.json
+```
+
+Label-v2 rows should contain:
+
+```text
+cascade_idx
+weak_score
+burst_score
+coordination_score
+structure_score
+text_score
+evidence_hit_count
+size_bucket
+label
+split
+```
+
+`13_build_packs.py` accepts either `weak_label` or `label`: `1` positive, `0` negative, `-1` ignore. Label-v1 uses `weak_label`; Label-v2 may use `label` as the public field name.

@@ -68,6 +68,10 @@ def main() -> int:
     feature_dir = args.feature_dir or run_dir / "features" / "obs_1800_step300_multiscale_hybrid_tree"
     window_dir = args.window_dir or run_dir / "windows" / "obs_1800_step300_multiscale_hybrid_tree"
     labels_path = args.labels or run_dir / "labels" / "weak_event_labels.csv"
+    global_candidate_edges = args.global_candidate_edges
+    if global_candidate_edges is None:
+        default_candidate_edges = run_dir / "global_graph" / "obs_1800_step300_multiscale_hybrid_tree" / "global_candidate_edge_table.csv"
+        global_candidate_edges = default_candidate_edges if default_candidate_edges.exists() else None
     out_dir = args.out_dir or run_dir / "packs" / "obs_1800_step300_multiscale_hybrid_tree"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -75,7 +79,7 @@ def main() -> int:
     handles = {split: (out_dir / f"{split}.pt").open("wb") for split in ["train", "valid", "test"]}
     diagnostics = init_diagnostics(feature_dir, window_dir, labels_path)
     try:
-        build_packs(feature_dir, window_dir, labels, handles, diagnostics)
+        build_packs(feature_dir, window_dir, labels, handles, diagnostics, global_candidate_edges)
     finally:
         for handle in handles.values():
             handle.close()
@@ -89,6 +93,8 @@ def main() -> int:
             "node_x",
             "edge_index_current",
             "edge_index_context",
+            "global_candidate_edge_index",
+            "global_candidate_edge_weight",
             "node_mask",
             "y",
         ],
@@ -114,6 +120,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feature-dir", type=Path, default=None)
     parser.add_argument("--window-dir", type=Path, default=None)
     parser.add_argument("--labels", type=Path, default=None)
+    parser.add_argument("--global-candidate-edges", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=None)
     return parser.parse_args()
 
@@ -122,8 +129,11 @@ def read_labels(path: Path) -> Dict[str, Dict[str, Any]]:
     labels: Dict[str, Dict[str, Any]] = {}
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
+            label_value = row.get("weak_label", row.get("label"))
+            if label_value is None:
+                raise ValueError(f"label row for cascade {row.get('cascade_idx')} has neither weak_label nor label")
             labels[str(row["cascade_idx"])] = {
-                "weak_label": int(row["weak_label"]),
+                "weak_label": int(label_value),
                 "split": row["split"],
                 "weak_score": float(row["weak_score"]),
             }
@@ -136,10 +146,13 @@ def build_packs(
     labels: Mapping[str, Mapping[str, Any]],
     handles: Mapping[str, Any],
     diagnostics: Dict[str, Any],
+    global_candidate_edges: Optional[Path] = None,
 ) -> None:
     window_groups = CsvGroupByCascade(feature_dir / "window_features.csv")
     node_groups = CsvGroupByCascade(feature_dir / "node_window_features.csv")
     edge_groups = CsvGroupByCascade(window_dir / "edge_window_table.csv")
+    global_groups = CsvGroupByCascade(global_candidate_edges) if global_candidate_edges is not None else None
+    diagnostics["global_candidate_edges"] = str(global_candidate_edges) if global_candidate_edges is not None else ""
     try:
         for cascade_idx in sorted(labels, key=lambda x: int(x)):
             label = labels[cascade_idx]
@@ -152,7 +165,8 @@ def build_packs(
                 diagnostics["skipped_missing_feature"] += 1
                 continue
             edge_rows = edge_groups.get(cascade_idx)
-            sample = make_sample(cascade_idx, window_rows, node_rows, edge_rows, int(label["weak_label"]))
+            global_rows = global_groups.get(cascade_idx) if global_groups is not None else []
+            sample = make_sample(cascade_idx, window_rows, node_rows, edge_rows, int(label["weak_label"]), global_rows)
             split = str(label["split"])
             pickle.dump(sample, handles[split], protocol=pickle.HIGHEST_PROTOCOL)
             update_diagnostics(diagnostics, split, sample)
@@ -160,6 +174,8 @@ def build_packs(
         window_groups.close()
         node_groups.close()
         edge_groups.close()
+        if global_groups is not None:
+            global_groups.close()
 
 
 def make_sample(
@@ -168,6 +184,7 @@ def make_sample(
     node_rows: List[Mapping[str, str]],
     edge_rows: List[Mapping[str, str]],
     y: int,
+    global_rows: Optional[List[Mapping[str, str]]] = None,
 ) -> Dict[str, Any]:
     window_rows = sorted(window_rows, key=lambda row: int(row["window_idx"]))
     window_ids = [int(row["window_idx"]) for row in window_rows]
@@ -206,15 +223,55 @@ def make_sample(
         if context_lists[i][0]:
             edge_context[i] = np.asarray(context_lists[i], dtype=np.int64)
 
+    global_edge_index, global_edge_weight = make_global_candidate_edges(global_rows or [], user_pos)
+
     return {
         "cascade_idx": int(cascade_idx),
         "window_x": window_x,
         "node_x": node_x,
         "edge_index_current": edge_current,
         "edge_index_context": edge_context,
+        "global_candidate_edge_index": global_edge_index,
+        "global_candidate_edge_weight": global_edge_weight,
         "node_mask": node_mask,
         "y": int(y),
     }
+
+
+def make_global_candidate_edges(
+    rows: List[Mapping[str, str]],
+    user_pos: Mapping[str, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    edges: List[List[int]] = [[], []]
+    weights: List[float] = []
+    seen: set[tuple[int, int]] = set()
+    for row in rows:
+        src = parse_local_idx(row, "src", user_pos)
+        dst = parse_local_idx(row, "dst", user_pos)
+        if src is None or dst is None or src == dst:
+            continue
+        pair = (src, dst)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        edges[0].append(src)
+        edges[1].append(dst)
+        weights.append(to_float(row.get("edge_weight", 1.0)))
+    if not weights:
+        return np.zeros((2, 0), dtype=np.int64), np.zeros((0,), dtype=np.float32)
+    return np.asarray(edges, dtype=np.int64), np.asarray(weights, dtype=np.float32)
+
+
+def parse_local_idx(row: Mapping[str, str], side: str, user_pos: Mapping[str, int]) -> Optional[int]:
+    user_key = f"{side}_user_idx"
+    if row.get(user_key) not in (None, ""):
+        mapped = user_pos.get(str(row[user_key]))
+        if mapped is not None:
+            return mapped
+    local_key = f"{side}_local_idx"
+    if row.get(local_key) not in (None, ""):
+        return int(row[local_key])
+    return None
 
 
 class CsvGroupByCascade:
@@ -277,6 +334,9 @@ def init_diagnostics(feature_dir: Path, window_dir: Path, labels_path: Path) -> 
         "max_nodes": 0,
         "empty_node_mask": 0,
         "edge_alignment_errors": 0,
+        "global_candidate_alignment_errors": 0,
+        "samples_with_global_candidates": 0,
+        "total_global_candidate_edges": 0,
     }
 
 
@@ -296,6 +356,12 @@ def update_diagnostics(diagnostics: Dict[str, Any], split: str, sample: Mapping[
         for edge_index in edge_list:
             if edge_index.size and (edge_index.max() >= nodes or edge_index.min() < 0):
                 diagnostics["edge_alignment_errors"] += 1
+    global_edges = sample.get("global_candidate_edge_index")
+    if global_edges is not None and global_edges.size:
+        diagnostics["samples_with_global_candidates"] += 1
+        diagnostics["total_global_candidate_edges"] += int(global_edges.shape[1])
+        if global_edges.max() >= nodes or global_edges.min() < 0:
+            diagnostics["global_candidate_alignment_errors"] += 1
 
 
 def finalize_diagnostics(diagnostics: Dict[str, Any]) -> None:

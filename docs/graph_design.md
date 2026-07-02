@@ -249,3 +249,20 @@ Table 2. Comparison of edge construction strategies.
 - BranchingTimeTree，当前默认树结构
 - FollowTree
 - HybridTree
+
+
+## 2026-07-02 Update: Follow Graph Candidate Pool
+
+The previous note that DRAGEN-Full does not need `graph/follow_edges.tsv` is superseded for experiments using the global prior. The full follow graph is still not loaded during training and no dense global adjacency is built. Instead, it is scanned once offline to construct per-cascade candidate pools:
+
+```powershell
+python scripts/10_build_global_candidate_edges.py --run-id run_0002 --follow-edges graph/follow_edges.tsv
+```
+
+This writes:
+
+```text
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
+```
+
+The pack stores candidate edges only. Adaptive Top-K sampling remains inside model forward.

@@ -78,6 +78,8 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
     cascade_idx = torch.zeros(batch_size, dtype=torch.long)
     edge_index_current: List[List[torch.Tensor]] = []
     edge_index_context: List[List[torch.Tensor]] = []
+    global_candidate_edge_index: List[torch.Tensor] = []
+    global_candidate_edge_weight: List[torch.Tensor] = []
 
     for b, sample in enumerate(samples):
         n = int(sample["node_x"].shape[1])
@@ -88,6 +90,8 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
         cascade_idx[b] = int(sample["cascade_idx"])
         edge_index_current.append(_edge_list_to_tensors(sample["edge_index_current"], T))
         edge_index_context.append(_edge_list_to_tensors(sample["edge_index_context"], T))
+        global_candidate_edge_index.append(_single_edge_tensor(sample.get("global_candidate_edge_index")))
+        global_candidate_edge_weight.append(_weight_tensor(sample.get("global_candidate_edge_weight")))
 
     return {
         "cascade_idx": cascade_idx,
@@ -95,6 +99,8 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
         "node_x": node_x,
         "edge_index_current": edge_index_current,
         "edge_index_context": edge_index_context,
+        "global_candidate_edge_index": global_candidate_edge_index,
+        "global_candidate_edge_weight": global_candidate_edge_weight,
         "node_mask": node_mask,
         "y": y,
     }
@@ -112,6 +118,24 @@ def _edge_list_to_tensors(edge_list: Iterable[Any], T: int) -> List[torch.Tensor
     while len(tensors) < T:
         tensors.append(torch.zeros(2, 0, dtype=torch.long))
     return tensors
+
+
+def _single_edge_tensor(edge: Any) -> torch.Tensor:
+    if edge is None:
+        return torch.zeros(2, 0, dtype=torch.long)
+    arr = np.asarray(edge, dtype=np.int64)
+    if arr.size == 0:
+        arr = np.zeros((2, 0), dtype=np.int64)
+    if arr.shape[0] != 2:
+        arr = arr.reshape(2, -1)
+    return torch.as_tensor(arr, dtype=torch.long)
+
+
+def _weight_tensor(weight: Any) -> torch.Tensor:
+    if weight is None:
+        return torch.zeros(0, dtype=torch.float32)
+    arr = np.asarray(weight, dtype=np.float32).reshape(-1)
+    return torch.as_tensor(arr, dtype=torch.float32)
 
 
 def stabilize_features(x: torch.Tensor) -> torch.Tensor:

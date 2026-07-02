@@ -101,10 +101,12 @@ def collect_predictions(
                         {
                             "cascade_idx": cascade_idx,
                             "window_idx": t,
-                            "local_node_idx": row["local_node_idx"],
+                            "target_local_node_idx": row.get("target_local_node_idx", row.get("local_node_idx")),
                             "neighbor_local_node_idx": row["neighbor_local_node_idx"],
-                            "sample_weight": row["sample_weight"],
-                            "source_type": row["source_type"],
+                            "sampled_score": row.get("sampled_score", ""),
+                            "sampled_weight": row.get("sampled_weight", row.get("sample_weight", "")),
+                            "prior_source": row.get("prior_source", row.get("source_type", "")),
+                            "sample_rank": row.get("sample_rank", ""),
                         }
                     )
     return event_rows, detail
@@ -143,12 +145,16 @@ def write_json(path: Path, data: Mapping[str, Any]) -> None:
 
 
 def move_batch_to_device(batch: Mapping[str, Any], device: torch.device) -> Dict[str, Any]:
-    moved: Dict[str, Any] = {}
-    for key, value in batch.items():
-        if torch.is_tensor(value):
-            moved[key] = value.to(device)
-        elif key.startswith("edge_index"):
-            moved[key] = [[edge.to(device) for edge in per_sample] for per_sample in value]
-        else:
-            moved[key] = value
-    return moved
+    return {key: move_value_to_device(value, device) for key, value in batch.items()}
+
+
+def move_value_to_device(value: Any, device: torch.device) -> Any:
+    if torch.is_tensor(value):
+        return value.to(device)
+    if isinstance(value, list):
+        return [move_value_to_device(item, device) for item in value]
+    if isinstance(value, tuple):
+        return tuple(move_value_to_device(item, device) for item in value)
+    if isinstance(value, dict):
+        return {key: move_value_to_device(item, device) for key, item in value.items()}
+    return value

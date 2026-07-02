@@ -211,3 +211,54 @@ ablation_no_uncertainty.yaml
 `w/o Tree` 使用 `obs_1800_win300_step300_star` pack。  
 `w/o MultiScale` 使用 `obs_1800_win300_step300_hybrid_tree` pack。  
 其他消融使用 MultiScale HybridTree pack，并通过命令行关闭模块。
+
+
+## 2026-07-02 Update: Learnable Adaptive Global Sampling
+
+`AdaptiveGlobalSampler` is now a learnable adaptive sampler, not static Top-K over follow weights. The candidate pool combines:
+
+```text
+N_f(i)       global follow candidate neighbors
+N_ctx^t(i)  context propagation neighbors
+N_cur^t(i)  current-window propagation neighbors
+N_sim^t(i)  evidence-similar nodes from a bounded similarity pool
+```
+
+For each target node and window, the sampler scores candidate pairs with `score_mlp`. The input includes target/candidate hidden states, evidence states, evidence difference, hidden-state interaction, true-follow indicator, context/current edge indicators, evidence similarity, and degree feature. Top-K is applied to the learned scores, followed by softmax. The resulting sampled weights are passed to `GlobalPriorEncoder`, so the sampler receives gradients through the event objective and auxiliary losses.
+
+The joint objective now includes sampler regularization:
+
+```text
+L = L_event
+  + lambda_jump * L_jump
+  + lambda_struct * L_struct
+  + lambda_align * L_align
+  + lambda_uncertainty * L_uncertainty
+  + lambda_role * L_role
+  + lambda_sampler_edge * L_sampler_edge
+  + lambda_sampler_hub * L_sampler_hub
+  + lambda_sampler_temp * L_sampler_temp
+```
+
+Defaults:
+
+```text
+lambda_sampler_edge = 0.005
+lambda_sampler_hub  = 0.001
+lambda_sampler_temp = 0.005
+```
+
+`w/o Adaptive Sampling` keeps `global_candidate_edge_index` but disables `score_mlp` scoring and falls back to static follow/context/similarity scoring. This ablation tests whether adaptive scoring helps beyond the follow graph candidate pool itself.
+
+Prediction export now writes `sampled_global_neighbors.csv` with:
+
+```text
+cascade_idx
+window_idx
+target_local_node_idx
+neighbor_local_node_idx
+sampled_score
+sampled_weight
+prior_source
+sample_rank
+```

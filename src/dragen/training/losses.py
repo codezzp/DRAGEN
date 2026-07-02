@@ -16,6 +16,9 @@ def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Di
     align = coral_alignment_loss(outputs["source_evidence"], outputs["node_mask"])
     uncertainty = uncertainty_loss(outputs, y)
     role = pseudo_role_loss(outputs, batch) if weights.get("lambda_role", 0.0) > 0 else outputs["event_logit"].new_tensor(0.0)
+    sampler_edge = outputs.get("sampler_edge_loss", outputs["event_logit"].new_tensor(0.0))
+    sampler_hub = outputs.get("sampler_hub_loss", outputs["event_logit"].new_tensor(0.0))
+    sampler_temp = sampler_temporal_loss(outputs)
     total = (
         event
         + weights.get("lambda_jump", 0.01) * jump
@@ -23,6 +26,9 @@ def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Di
         + weights.get("lambda_align", 0.001) * align
         + weights.get("lambda_uncertainty", 0.001) * uncertainty
         + weights.get("lambda_role", 0.0) * role
+        + weights.get("lambda_sampler_edge", 0.005) * sampler_edge
+        + weights.get("lambda_sampler_hub", 0.001) * sampler_hub
+        + weights.get("lambda_sampler_temp", 0.005) * sampler_temp
     )
     breakdown = {
         "loss_total": float(total.detach().cpu()),
@@ -32,8 +38,27 @@ def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Di
         "loss_align": float(align.detach().cpu()),
         "loss_uncertainty": float(uncertainty.detach().cpu()),
         "loss_role": float(role.detach().cpu()),
+        "loss_sampler_edge": float(sampler_edge.detach().cpu()),
+        "loss_sampler_hub": float(sampler_hub.detach().cpu()),
+        "loss_sampler_temp": float(sampler_temp.detach().cpu()),
     }
     return total, breakdown
+
+
+def sampler_temporal_loss(outputs: Dict[str, Any]) -> torch.Tensor:
+    g = outputs["global_prior"]
+    mask = outputs["node_mask"].float()
+    if g.shape[1] < 2:
+        return g.new_tensor(0.0)
+    pair_mask = mask[:, 1:] * mask[:, :-1]
+    shock = outputs.get("shock")
+    if shock is None:
+        shock_weight = torch.ones_like(pair_mask)
+    else:
+        shock_weight = torch.exp(-shock[:, 1:])
+    diff = (g[:, 1:] - g[:, :-1]).pow(2).mean(dim=-1)
+    loss = shock_weight * diff * pair_mask
+    return loss.sum() / pair_mask.sum().clamp_min(1.0)
 
 
 def temporal_jump_loss(outputs: Dict[str, Any]) -> torch.Tensor:

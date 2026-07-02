@@ -39,6 +39,9 @@ loss:
   lambda_align: 0.001
   lambda_uncertainty: 0.001
   lambda_role: 0.0
+  lambda_sampler_edge: 0.005
+  lambda_sampler_hub: 0.001
+  lambda_sampler_temp: 0.005
 
 logging:
   tensorboard: true

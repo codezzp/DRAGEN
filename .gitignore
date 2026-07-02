@@ -5,3 +5,5 @@
 # Python runtime caches.
 __pycache__/
 *.py[cod]
+/packs/
+*.zip

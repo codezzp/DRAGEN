@@ -107,6 +107,9 @@ def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
             "lambda_align": "lambda_align",
             "lambda_uncertainty": "lambda_uncertainty",
             "lambda_role": "lambda_role",
+            "lambda_sampler_edge": "lambda_sampler_edge",
+            "lambda_sampler_hub": "lambda_sampler_hub",
+            "lambda_sampler_temp": "lambda_sampler_temp",
         },
     )
     merge_section(out, config.get("output"), {"out_dir": "out_dir", "main_out": "main_out", "risk_out": "risk_out", "ablation_out": "ablation_out"})

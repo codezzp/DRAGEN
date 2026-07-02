@@ -819,3 +819,58 @@ work/artifacts/reports/ablation_results.csv
 ```
 
 Do not put DRAGEN-only explanation metrics into the baseline comparison table. Role, gate, uncertainty, temporal stability, and attention metrics belong only in the explanation/stability analysis table.
+
+
+## 2026-07-02 Update: Server Data Requirements
+
+For runs with `use_global_prior=true`, the server pack should include global follow candidate fields. If packs are copied from the workstation after rebuild, no server-side `graph/follow_edges.tsv` scan is required.
+
+Required rebuilt pack metadata should list:
+
+```text
+global_candidate_edge_index
+global_candidate_edge_weight
+```
+
+If rebuilding packs on the server, copy `graph/follow_edges.tsv` and run before `13_build_packs.py`:
+
+```bash
+python scripts/10_build_global_candidate_edges.py --run-id run_0002 --follow-edges graph/follow_edges.tsv
+python scripts/13_build_packs.py --run-id run_0002
+```
+
+The current workstation pack has already been rebuilt with candidate edges:
+
+```text
+samples_with_global_candidates = 41,289
+total_global_candidate_edges   = 890,037
+global_candidate_alignment_errors = 0
+```
+
+Sampler loss CLI/config keys are available:
+
+```text
+--lambda-sampler-edge 0.005
+--lambda-sampler-hub 0.001
+--lambda-sampler-temp 0.005
+```
+
+
+## Configuration-Driven Runs
+
+Use YAML configs for formal runs. See `docs/configuration.md` for supported sections, field mapping, priority rules, label-version configs, ablation rules, and reproducibility metadata.
+
+Label-version training configs are available at:
+
+```text
+configs/train/dragen_full_label_v2.yaml
+configs/train/dragen_full_label_v3.yaml
+configs/train/dragen_full_label_v4.yaml
+configs/train/dragen_full_label_v5.yaml
+```
+
+Example:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
+```

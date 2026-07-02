@@ -267,3 +267,60 @@ python scripts/19_analyze_predictions.py \
 - [docs/run_notes.md](docs/run_notes.md)：实验记录。
 - [docs/results_summary.md](docs/results_summary.md)：当前实验摘要。
 - [docs/server_experiment_guide.md](docs/server_experiment_guide.md)：服务器迁移与训练说明。
+
+
+## Current Data/Label Update (2026-07-02)
+
+The current `labels/weak_event_labels.csv` is Label-v1: a debug weak-label set based on global `weak_score` quantiles. It is useful for pipeline closure but should not be the final thesis label set because the score components overlap with model input statistics. See `docs/label_design.md` for the recommended Label-v2 design.
+
+The global follow candidate pool has been built from `graph/follow_edges.tsv` and packed into the MultiScale HybridTree packs:
+
+```text
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
+work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
+```
+
+Current pack samples include:
+
+```text
+global_candidate_edge_index
+global_candidate_edge_weight
+```
+
+Build order for the current candidate-pool pack is:
+
+```powershell
+python scripts/10_build_global_candidate_edges.py --run-id run_0002 --follow-edges graph/follow_edges.tsv
+python scripts/13_build_packs.py --run-id run_0002
+```
+
+`w/o Adaptive Sampling` keeps the same candidate pool but disables the learnable sampler scoring branch.
+
+
+## Configuration-Driven Runs
+
+Use YAML configs for formal runs. See `docs/configuration.md` for supported sections, field mapping, priority rules, label-version configs, ablation rules, and reproducibility metadata.
+
+Label-version training configs are available at:
+
+```text
+configs/train/dragen_full_label_v2.yaml
+configs/train/dragen_full_label_v3.yaml
+configs/train/dragen_full_label_v4.yaml
+configs/train/dragen_full_label_v5.yaml
+```
+
+Example:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
+```
+
+
+Label comparison output:
+
+```text
+work/runs/run_0002/label_comparison/label_version_comparison.csv
+```
+
+Use `configs/train/dragen_full_label_v2.yaml` through `dragen_full_label_v5.yaml` for label-version training runs.

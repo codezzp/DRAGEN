@@ -62,6 +62,9 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         "lambda_align": args.lambda_align,
         "lambda_uncertainty": args.lambda_uncertainty,
         "lambda_role": args.lambda_role,
+        "lambda_sampler_edge": args.lambda_sampler_edge,
+        "lambda_sampler_hub": args.lambda_sampler_hub,
+        "lambda_sampler_temp": args.lambda_sampler_temp,
     }
     best_score = -1.0
     history = []

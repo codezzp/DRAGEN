@@ -424,3 +424,117 @@ ordinary
 ## 12. 记录实验
 
 每次重要实验或结构调整都记录到 [run_notes.md](run_notes.md)。
+
+
+## 2026-07-02 Update: Labels, Global Candidates, and Packs
+
+The existing weak labels under `work/runs/run_0002/labels/` are Label-v1 debug labels. They use global `weak_score` quantiles (`top 20%` positive, `bottom 50%` negative, middle ignored). This remains valid for pipeline checks, but formal thesis experiments should move to Label-v2: stratified multi-rule weak labels. The Label-v2 design is documented in `docs/label_design.md` and should write to `work/runs/run_0002/labels_v2_stratified_score/` without overwriting Label-v1.
+
+A real follow-graph candidate pool is now part of the formal pack path. The offline step only builds candidate edges; it does not precompute sampled neighbors:
+
+```powershell
+python scripts/10_build_global_candidate_edges.py --run-id run_0002 --follow-edges graph/follow_edges.tsv
+```
+
+Output:
+
+```text
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_diagnostics.json
+```
+
+Current run_0002 diagnostics:
+
+```text
+follow_edges_scanned      = 413,503,687
+candidate_edges_written   = 1,399,062
+cascades_with_candidates  = 65,041
+```
+
+`13_build_packs.py` automatically reads the default candidate table when it exists and writes `global_candidate_edge_index` and `global_candidate_edge_weight` into each sample. Current rebuilt pack diagnostics:
+
+```text
+train = 41,750
+valid = 9,175
+test  = 8,759
+samples_with_global_candidates = 41,289
+total_global_candidate_edges   = 890,037
+global_candidate_alignment_errors = 0
+```
+
+
+## Implemented Multi-Version Label Pipeline
+
+Current scripts:
+
+```text
+scripts/12a_export_weak_labels_v1_score_rank.py
+scripts/12b_build_weak_labels_v2.py
+scripts/12c_build_weak_labels_v3_lf_vote.py
+scripts/12d_build_weak_labels_v4_coordination.py
+scripts/12e_build_weak_labels_v5_ensemble.py
+scripts/12f_compare_weak_labels.py
+```
+
+Current output directories:
+
+```text
+work/runs/run_0002/labels_v1_score_rank/
+work/runs/run_0002/labels_v2_stratified_score/
+work/runs/run_0002/labels_v3_lf_vote/
+work/runs/run_0002/labels_v4_coordination_network/
+work/runs/run_0002/labels_v5_ensemble_consensus/
+work/runs/run_0002/label_comparison/label_version_comparison.csv
+```
+
+Build commands:
+
+```powershell
+python scripts/12a_export_weak_labels_v1_score_rank.py --run-id run_0002
+python scripts/12b_build_weak_labels_v2.py --run-id run_0002
+python scripts/12c_build_weak_labels_v3_lf_vote.py --run-id run_0002
+python scripts/12d_build_weak_labels_v4_coordination.py --run-id run_0002
+python scripts/12e_build_weak_labels_v5_ensemble.py --run-id run_0002
+python scripts/12f_compare_weak_labels.py --run-id run_0002
+```
+
+Current label comparison summary:
+
+```text
+v1 score_rank:              pos=17,053 neg=42,631 ignore=25,579 corr_size=0.057
+v2 stratified_score:        pos=4,177  neg=15,728 ignore=65,358 corr_size=0.240
+v3 lf_vote:                 pos=3,179  neg=2,974  ignore=79,110 corr_size=0.128
+v4 coordination_network:    pos=5,848  neg=10,974 ignore=68,441 corr_size=0.203
+v5 ensemble_consensus:      pos=1,392  neg=3,911  ignore=79,960 corr_size=0.071
+```
+
+Independent packs have been built for Label-v2 through Label-v5:
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v2/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v3/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v4/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v5/
+```
+
+All these packs include `global_candidate_edge_index` and `global_candidate_edge_weight`.
+
+
+## Configuration-Driven Runs
+
+Use YAML configs for formal runs. See `docs/configuration.md` for supported sections, field mapping, priority rules, label-version configs, ablation rules, and reproducibility metadata.
+
+Label-version training configs are available at:
+
+```text
+configs/train/dragen_full_label_v2.yaml
+configs/train/dragen_full_label_v3.yaml
+configs/train/dragen_full_label_v4.yaml
+configs/train/dragen_full_label_v5.yaml
+```
+
+Example:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
+```

@@ -468,3 +468,89 @@ Run ID：run_0002
 备注：
   MultiScale 保持 6 个推断端点；window/node 表用 cur/ctx/cum 多尺度字段，edge 表用 current/context 两种 window_scope。
 ```
+
+
+## 2026-07-02 Global Candidate Pack and Label Design Note
+
+Global follow candidate extraction completed for run_0002:
+
+```text
+follow_edges_scanned    = 413,503,687
+candidate_edges_written = 1,399,062
+```
+
+Packs were rebuilt at:
+
+```text
+work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
+```
+
+Pack diagnostics after rebuild:
+
+```text
+train = 41,750
+valid = 9,175
+test  = 8,759
+samples_with_global_candidates = 41,289
+total_global_candidate_edges = 890,037
+global_candidate_alignment_errors = 0
+```
+
+The current Label-v1 weak labels remain useful for pipeline closure. Formal experiments should introduce Label-v2 stratified multi-rule weak labels before final reporting.
+
+
+## Implemented Multi-Version Label Pipeline
+
+Current scripts:
+
+```text
+scripts/12a_export_weak_labels_v1_score_rank.py
+scripts/12b_build_weak_labels_v2.py
+scripts/12c_build_weak_labels_v3_lf_vote.py
+scripts/12d_build_weak_labels_v4_coordination.py
+scripts/12e_build_weak_labels_v5_ensemble.py
+scripts/12f_compare_weak_labels.py
+```
+
+Current output directories:
+
+```text
+work/runs/run_0002/labels_v1_score_rank/
+work/runs/run_0002/labels_v2_stratified_score/
+work/runs/run_0002/labels_v3_lf_vote/
+work/runs/run_0002/labels_v4_coordination_network/
+work/runs/run_0002/labels_v5_ensemble_consensus/
+work/runs/run_0002/label_comparison/label_version_comparison.csv
+```
+
+Build commands:
+
+```powershell
+python scripts/12a_export_weak_labels_v1_score_rank.py --run-id run_0002
+python scripts/12b_build_weak_labels_v2.py --run-id run_0002
+python scripts/12c_build_weak_labels_v3_lf_vote.py --run-id run_0002
+python scripts/12d_build_weak_labels_v4_coordination.py --run-id run_0002
+python scripts/12e_build_weak_labels_v5_ensemble.py --run-id run_0002
+python scripts/12f_compare_weak_labels.py --run-id run_0002
+```
+
+Current label comparison summary:
+
+```text
+v1 score_rank:              pos=17,053 neg=42,631 ignore=25,579 corr_size=0.057
+v2 stratified_score:        pos=4,177  neg=15,728 ignore=65,358 corr_size=0.240
+v3 lf_vote:                 pos=3,179  neg=2,974  ignore=79,110 corr_size=0.128
+v4 coordination_network:    pos=5,848  neg=10,974 ignore=68,441 corr_size=0.203
+v5 ensemble_consensus:      pos=1,392  neg=3,911  ignore=79,960 corr_size=0.071
+```
+
+Independent packs have been built for Label-v2 through Label-v5:
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v2/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v3/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v4/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v5/
+```
+
+All these packs include `global_candidate_edge_index` and `global_candidate_edge_weight`.

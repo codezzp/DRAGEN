@@ -363,3 +363,10 @@ Result-table entry:
 python scripts/18_export_result_tables.py \
   --config configs/train/result_tables_run0002.yaml
 ```
+
+
+## 2026-07-02 Methodological Caution
+
+Current reported Label-v1 results should be interpreted as pipeline/debug results. Label-v1 uses global weak-score quantiles and may be highly correlated with model input statistics. Very high AUC under Label-v1 is not sufficient evidence that the model has learned organized manipulation.
+
+Formal thesis runs should be repeated with Label-v2 stratified multi-rule weak labels, documented in `docs/label_design.md`, and result tables should explicitly name the label version.

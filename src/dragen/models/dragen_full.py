@@ -56,7 +56,7 @@ class DRAGENFull(nn.Module):
         self.source_encoder = SourceEvidenceEncoder(DEFAULT_SCHEMA, hidden_dim, dropout)
         self.reader = EvidenceReader(hidden_dim)
         self.local_role_encoder = LocalRoleEncoder(hidden_dim, window_input_dim, dropout=dropout)
-        self.sampler = AdaptiveGlobalSampler(top_k=top_k_global)
+        self.sampler = AdaptiveGlobalSampler(hidden_dim=hidden_dim, top_k=top_k_global)
         self.global_encoder = GlobalPriorEncoder(hidden_dim, dropout)
         self.memory = TemporalMemory(hidden_dim)
         self.manipulation_state = ManipulationState(hidden_dim, window_input_dim, dropout)
@@ -82,6 +82,8 @@ class DRAGENFull(nn.Module):
         node_mask = batch["node_mask"].bool()
         edge_context = batch["edge_index_context"]
         edge_current = batch.get("edge_index_current", edge_context)
+        global_edges = global_edge_index if global_edge_index is not None else batch.get("global_candidate_edge_index")
+        global_edge_weights = batch.get("global_candidate_edge_weight")
         B, T, N, _ = node_x.shape
         H = self.hidden_dim
 
@@ -104,6 +106,8 @@ class DRAGENFull(nn.Module):
         sampled_neighbors: List[List[Dict[str, Any]]] = []
         sampled_edges_all: List[List[torch.Tensor]] = []
         sampled_weights_all: List[List[torch.Tensor]] = []
+        sampler_edge_losses: List[torch.Tensor] = []
+        sampler_hub_losses: List[torch.Tensor] = []
 
         history_prev = torch.zeros(B, N, H, device=node_x.device)
         manip_prev = torch.zeros(B, N, H, device=node_x.device)
@@ -115,18 +119,26 @@ class DRAGENFull(nn.Module):
         for t in range(T):
             local_t = self.local_role_encoder(e_local[:, t], window_x[:, t], [edge_context[b][t] for b in range(B)], node_mask[:, t])
             if self.use_global_prior:
-                sampled_edges, sample_weights, neigh = self.sampler(
+                sampled_edges, sample_weights, neigh, sampler_aux = self.sampler(
                     e_obs[:, t],
-                    [edge_context[b][t] for b in range(B)] if self.use_adaptive_sampler else [edge_current[b][t] for b in range(B)],
+                    [edge_context[b][t] for b in range(B)],
                     node_mask[:, t],
-                    global_edges=global_edge_index,
+                    global_edges=global_edges,
+                    global_edge_weights=global_edge_weights,
+                    current_edges=[edge_current[b][t] for b in range(B)],
+                    evidence_repr=e_obs[:, t],
                     top_k=self.top_k_global,
+                    adaptive=self.use_adaptive_sampler,
                 )
+                sampler_edge_losses.append(sampler_aux["sampler_edge_loss"])
+                sampler_hub_losses.append(sampler_aux["sampler_hub_loss"])
                 global_t = self.global_encoder(e_obs[:, t], sampled_edges, sample_weights, node_mask[:, t])
             else:
                 sampled_edges = [torch.zeros(2, 0, dtype=torch.long, device=node_x.device) for _ in range(B)]
                 sample_weights = [torch.zeros(0, device=node_x.device) for _ in range(B)]
                 neigh = [[] for _ in range(B)]
+                sampler_edge_losses.append(node_x.new_tensor(0.0))
+                sampler_hub_losses.append(node_x.new_tensor(0.0))
                 global_t = torch.zeros_like(local_t)
             history_t = self.memory.forward_step(local_t, global_t, e_obs[:, t], history_prev, node_mask[:, t], self.use_memory)
             role_prob_t = self._role_prob(local_t, history_t, global_t, window_x[:, t], node_mask[:, t])
@@ -218,6 +230,8 @@ class DRAGENFull(nn.Module):
             "sampled_global_edges": sampled_edges_all,
             "sampled_global_weights": sampled_weights_all,
             "sampled_global_neighbors": sampled_neighbors,
+            "sampler_edge_loss": torch.stack(sampler_edge_losses).mean() if sampler_edge_losses else node_x.new_tensor(0.0),
+            "sampler_hub_loss": torch.stack(sampler_hub_losses).mean() if sampler_hub_losses else node_x.new_tensor(0.0),
             "node_mask": node_mask,
         }
 
