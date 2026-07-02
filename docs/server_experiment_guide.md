@@ -1111,6 +1111,19 @@ predictions/event_predictions.csv
 predictions/sampled_global_neighbors.csv
 ```
 
+
+### 文本语义增强额外文件
+
+如果服务器只训练 `DRAGEN-Full-StatText`，不需要 RoBERTa 文本 embedding。若要训练 `DRAGEN-Full-RoBERTaText`，还需要同步：
+
+```text
+work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext_dim64/
+work/runs/run_0002/text_semantic_features/obs_1800_step300_multiscale_hybrid_tree/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v5_roberta_text/
+```
+
+RoBERTa 原始编码只应作为离线预处理缓存，训练脚本和 pack 构建脚本不会触发 RoBERTa。完整命令见 `docs/text_embeddings.md`。
+
 ### 8. Rebuilding Labels or Packs on Server
 
 Only do this when necessary. If rebuilding packs from existing labels/features, transfer:

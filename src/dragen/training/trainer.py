@@ -56,6 +56,7 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         use_gate=args.use_gate,
         use_uncertainty=args.use_uncertainty,
         use_role=args.use_role,
+        text_semantic_dim=getattr(args, "text_semantic_dim", 64),
     ).to(device)
     optim = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     writer = create_tensorboard_writer(args, out_dir)

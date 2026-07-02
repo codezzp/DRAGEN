@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--role-num", type=int, default=5)
     parser.add_argument("--top-k-global", type=int, default=20)
+    parser.add_argument("--text-semantic-dim", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--weight-decay", type=float, default=0.00001)
     parser.add_argument("--lambda-jump", type=float, default=0.01)

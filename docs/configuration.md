@@ -302,6 +302,13 @@ model:
 
 For `w/o Tree` and `w/o MultiScale`, change `data.pack_dir` to the corresponding pack variant instead of toggling a model flag.
 
+
+## 文本配置说明
+
+当前主线配置 `configs/train/dragen_full_stat_text.yaml` 使用统计文本证据，不需要 RoBERTa embedding。文本增强配置 `configs/train/dragen_full_roberta_text.yaml` 指向包含 `node_text_x/window_text_x` 的新 pack，并通过 `model.text_semantic_dim: 64` 启用语义文本分支。
+
+完整离线流程见 `docs/text_embeddings.md`。RoBERTa 编码、降维和窗口聚合都属于预处理阶段；训练阶段只读取 pack，不会重新编码文本。
+
 ## DataLoader 性能配置
 
 训练配置可以在 `train` 段调整 PyTorch DataLoader 的并行读取和预取参数：

@@ -37,6 +37,7 @@ class DRAGENFull(nn.Module):
         use_gate: bool = True,
         use_uncertainty: bool = True,
         use_role: bool = True,
+        text_semantic_dim: int = 64,
     ) -> None:
         super().__init__()
         if role_num != len(ROLE_NAMES):
@@ -53,7 +54,7 @@ class DRAGENFull(nn.Module):
         self.use_uncertainty = use_uncertainty
         self.use_role = use_role
 
-        self.source_encoder = SourceEvidenceEncoder(DEFAULT_SCHEMA, hidden_dim, dropout)
+        self.source_encoder = SourceEvidenceEncoder(DEFAULT_SCHEMA, hidden_dim, dropout, text_semantic_dim=text_semantic_dim)
         self.reader = EvidenceReader(hidden_dim)
         self.local_role_encoder = LocalRoleEncoder(hidden_dim, window_input_dim, dropout=dropout)
         self.sampler = AdaptiveGlobalSampler(hidden_dim=hidden_dim, top_k=top_k_global)
@@ -87,7 +88,7 @@ class DRAGENFull(nn.Module):
         B, T, N, _ = node_x.shape
         H = self.hidden_dim
 
-        source_evidence = self.source_encoder(node_x)
+        source_evidence = self.source_encoder(node_x, batch.get("node_text_x"))
         e_local = self.reader(source_evidence, "local_role")
         e_obs = self.reader(source_evidence, "gate_obs")
 

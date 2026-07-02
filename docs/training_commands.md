@@ -140,6 +140,16 @@ python scripts/19_analyze_predictions.py \
   --artifact-dir work/artifacts/dragen_follow_adaptive_label_v5_seed0
 ```
 
+## 文本语义增强
+
+RoBERTa 文本嵌入是离线预处理，不在训练阶段运行；根文本和转发文本都会编码。完整流程见 `docs/text_embeddings.md`。
+
+```bash
+python scripts/10_encode_text_roberta.py --run-id run_0002 --device auto
+python scripts/10b_reduce_text_embeddings.py   --in-dir work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext   --out-dir work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext_dim64   --dim 64
+python scripts/11b_build_text_semantic_features.py   --run-id run_0002   --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree   --text-emb-dir work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext_dim64   --out-dir work/runs/run_0002/text_semantic_features/obs_1800_step300_multiscale_hybrid_tree
+```
+
 ## Pack Rebuild Example
 
 ```bash

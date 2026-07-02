@@ -70,6 +70,7 @@ def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
             "hidden_dim": "hidden_dim",
             "role_num": "role_num",
             "top_k_global": "top_k_global",
+            "text_semantic_dim": "text_semantic_dim",
             "dropout": "dropout",
             "use_global_prior": "use_global_prior",
             "use_adaptive_sampling": "use_adaptive_sampler",

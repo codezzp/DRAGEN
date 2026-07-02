@@ -69,6 +69,7 @@ def main() -> int:
     window_dir = args.window_dir or run_dir / "windows" / "obs_1800_step300_multiscale_hybrid_tree"
     labels_path = args.labels or run_dir / "labels" / "weak_event_labels.csv"
     global_candidate_edges = args.global_candidate_edges
+    text_semantic_dir = args.text_semantic_dir
     if global_candidate_edges is None:
         default_candidate_edges = run_dir / "global_graph" / "obs_1800_step300_multiscale_hybrid_tree" / "global_candidate_edge_table.csv"
         global_candidate_edges = default_candidate_edges if default_candidate_edges.exists() else None
@@ -78,29 +79,35 @@ def main() -> int:
     labels = read_labels(labels_path)
     handles = {split: (out_dir / f"{split}.pt").open("wb") for split in ["train", "valid", "test"]}
     diagnostics = init_diagnostics(feature_dir, window_dir, labels_path)
+    diagnostics["text_semantic_dir"] = str(text_semantic_dir) if text_semantic_dir is not None else ""
     try:
-        build_packs(feature_dir, window_dir, labels, handles, diagnostics, global_candidate_edges)
+        build_packs(feature_dir, window_dir, labels, handles, diagnostics, global_candidate_edges, text_semantic_dir)
     finally:
         for handle in handles.values():
             handle.close()
 
+    sample_keys = [
+        "cascade_idx",
+        "window_x",
+        "node_x",
+        "edge_index_current",
+        "edge_index_context",
+        "global_candidate_edge_index",
+        "global_candidate_edge_weight",
+        "node_mask",
+        "y",
+    ]
+    text_semantic_dim = read_text_semantic_dim(text_semantic_dir)
+    if text_semantic_dim:
+        sample_keys.extend(["node_text_x", "window_text_x"])
     meta = {
         "format": "pickle_stream",
         "reader_note": "Read records with repeated pickle.load(fp) until EOFError.",
-        "sample_keys": [
-            "cascade_idx",
-            "window_x",
-            "node_x",
-            "edge_index_current",
-            "edge_index_context",
-            "global_candidate_edge_index",
-            "global_candidate_edge_weight",
-            "node_mask",
-            "y",
-        ],
+        "sample_keys": sample_keys,
         "window_feature_columns": WINDOW_FEATURE_COLUMNS,
         "node_feature_columns": NODE_FEATURE_COLUMNS,
         "T": 6,
+        "text_semantic_dim": text_semantic_dim,
     }
     write_json(out_dir / "meta.json", meta)
     finalize_diagnostics(diagnostics)
@@ -114,6 +121,22 @@ def main() -> int:
     return 0
 
 
+def read_text_semantic_dim(path: Optional[Path]) -> int:
+    if path is None:
+        return 0
+    meta_path = path / "text_semantic_feature_meta.json"
+    if meta_path.exists():
+        try:
+            return int(json.loads(meta_path.read_text(encoding="utf-8")).get("dim", 0))
+        except Exception:
+            return 0
+    node_path = path / "node_text_features.npy"
+    if node_path.exists():
+        arr = np.load(node_path, mmap_mode="r")
+        return int(arr.shape[1]) if arr.ndim == 2 else 0
+    return 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build streamable DRAGEN event packs.")
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
@@ -121,6 +144,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window-dir", type=Path, default=None)
     parser.add_argument("--labels", type=Path, default=None)
     parser.add_argument("--global-candidate-edges", type=Path, default=None)
+    parser.add_argument("--text-semantic-dir", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=None)
     return parser.parse_args()
 
@@ -147,11 +171,13 @@ def build_packs(
     handles: Mapping[str, Any],
     diagnostics: Dict[str, Any],
     global_candidate_edges: Optional[Path] = None,
+    text_semantic_dir: Optional[Path] = None,
 ) -> None:
     window_groups = CsvGroupByCascade(feature_dir / "window_features.csv")
     node_groups = CsvGroupByCascade(feature_dir / "node_window_features.csv")
     edge_groups = CsvGroupByCascade(window_dir / "edge_window_table.csv")
     global_groups = CsvGroupByCascade(global_candidate_edges) if global_candidate_edges is not None else None
+    text_semantic = TextSemanticFeatures(text_semantic_dir) if text_semantic_dir is not None else None
     diagnostics["global_candidate_edges"] = str(global_candidate_edges) if global_candidate_edges is not None else ""
     try:
         for cascade_idx in sorted(labels, key=lambda x: int(x)):
@@ -166,7 +192,15 @@ def build_packs(
                 continue
             edge_rows = edge_groups.get(cascade_idx)
             global_rows = global_groups.get(cascade_idx) if global_groups is not None else []
-            sample = make_sample(cascade_idx, window_rows, node_rows, edge_rows, int(label["weak_label"]), global_rows)
+            sample = make_sample(
+                cascade_idx,
+                window_rows,
+                node_rows,
+                edge_rows,
+                int(label["weak_label"]),
+                global_rows,
+                text_semantic=text_semantic,
+            )
             split = str(label["split"])
             pickle.dump(sample, handles[split], protocol=pickle.HIGHEST_PROTOCOL)
             update_diagnostics(diagnostics, split, sample)
@@ -185,6 +219,7 @@ def make_sample(
     edge_rows: List[Mapping[str, str]],
     y: int,
     global_rows: Optional[List[Mapping[str, str]]] = None,
+    text_semantic: Optional["TextSemanticFeatures"] = None,
 ) -> Dict[str, Any]:
     window_rows = sorted(window_rows, key=lambda row: int(row["window_idx"]))
     window_ids = [int(row["window_idx"]) for row in window_rows]
@@ -224,8 +259,9 @@ def make_sample(
             edge_context[i] = np.asarray(context_lists[i], dtype=np.int64)
 
     global_edge_index, global_edge_weight = make_global_candidate_edges(global_rows or [], user_pos)
+    node_text_x, window_text_x = make_text_semantic_arrays(text_semantic, cascade_idx, window_ids, users)
 
-    return {
+    sample = {
         "cascade_idx": int(cascade_idx),
         "window_x": window_x,
         "node_x": node_x,
@@ -236,6 +272,10 @@ def make_sample(
         "node_mask": node_mask,
         "y": int(y),
     }
+    if node_text_x is not None and window_text_x is not None:
+        sample["node_text_x"] = node_text_x
+        sample["window_text_x"] = window_text_x
+    return sample
 
 
 def make_global_candidate_edges(
@@ -260,6 +300,50 @@ def make_global_candidate_edges(
     if not weights:
         return np.zeros((2, 0), dtype=np.int64), np.zeros((0,), dtype=np.float32)
     return np.asarray(edges, dtype=np.int64), np.asarray(weights, dtype=np.float32)
+
+
+def make_text_semantic_arrays(
+    text_semantic: Optional["TextSemanticFeatures"],
+    cascade_idx: str,
+    window_ids: List[int],
+    users: List[str],
+) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    if text_semantic is None:
+        return None, None
+    T = len(window_ids)
+    N = len(users)
+    dim = text_semantic.dim
+    node_text_x = np.zeros((T, N, dim), dtype=np.float32)
+    window_text_x = np.zeros((T, dim), dtype=np.float32)
+    user_pos = {int(user): i for i, user in enumerate(users)}
+    window_pos = {int(window_idx): i for i, window_idx in enumerate(window_ids)}
+    c = int(cascade_idx)
+    for (window_idx, user_idx), vec in text_semantic.node_by_cascade.get(c, {}).items():
+        t = window_pos.get(int(window_idx))
+        n = user_pos.get(int(user_idx))
+        if t is not None and n is not None:
+            node_text_x[t, n] = vec
+    for window_idx, vec in text_semantic.window_by_cascade.get(c, {}).items():
+        t = window_pos.get(int(window_idx))
+        if t is not None:
+            window_text_x[t] = vec
+    return node_text_x, window_text_x
+
+
+class TextSemanticFeatures:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        node_x = np.load(path / "node_text_features.npy").astype(np.float32)
+        window_x = np.load(path / "window_text_features.npy").astype(np.float32)
+        node_index = json.loads((path / "node_text_feature_index.json").read_text(encoding="utf-8"))
+        window_index = json.loads((path / "window_text_feature_index.json").read_text(encoding="utf-8"))
+        self.dim = int(node_x.shape[1] if node_x.size else window_x.shape[1])
+        self.node_by_cascade: Dict[int, Dict[tuple[int, int], np.ndarray]] = defaultdict(dict)
+        self.window_by_cascade: Dict[int, Dict[int, np.ndarray]] = defaultdict(dict)
+        for row, vec in zip(node_index, node_x):
+            self.node_by_cascade[int(row["cascade_idx"])][(int(row["window_idx"]), int(row["user_idx"]))] = vec
+        for row, vec in zip(window_index, window_x):
+            self.window_by_cascade[int(row["cascade_idx"])][int(row["window_idx"])] = vec
 
 
 def parse_local_idx(row: Mapping[str, str], side: str, user_pos: Mapping[str, int]) -> Optional[int]:
@@ -337,6 +421,8 @@ def init_diagnostics(feature_dir: Path, window_dir: Path, labels_path: Path) -> 
         "global_candidate_alignment_errors": 0,
         "samples_with_global_candidates": 0,
         "total_global_candidate_edges": 0,
+        "samples_with_text_semantic": 0,
+        "text_semantic_dim": 0,
     }
 
 
@@ -356,6 +442,9 @@ def update_diagnostics(diagnostics: Dict[str, Any], split: str, sample: Mapping[
         for edge_index in edge_list:
             if edge_index.size and (edge_index.max() >= nodes or edge_index.min() < 0):
                 diagnostics["edge_alignment_errors"] += 1
+    if sample.get("node_text_x") is not None:
+        diagnostics["samples_with_text_semantic"] += 1
+        diagnostics["text_semantic_dim"] = int(sample["node_text_x"].shape[-1])
     global_edges = sample.get("global_candidate_edge_index")
     if global_edges is not None and global_edges.size:
         diagnostics["samples_with_global_candidates"] += 1

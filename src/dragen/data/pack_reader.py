@@ -80,6 +80,12 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
     edge_index_context: List[List[torch.Tensor]] = []
     global_candidate_edge_index: List[torch.Tensor] = []
     global_candidate_edge_weight: List[torch.Tensor] = []
+    has_node_text = any(sample.get("node_text_x") is not None for sample in samples)
+    has_window_text = any(sample.get("window_text_x") is not None for sample in samples)
+    d_node_text = infer_optional_dim(samples, "node_text_x") if has_node_text else 0
+    d_window_text = infer_optional_dim(samples, "window_text_x") if has_window_text else 0
+    node_text_x = torch.zeros(batch_size, T, n_max, d_node_text, dtype=torch.float32) if has_node_text else None
+    window_text_x = torch.zeros(batch_size, T, d_window_text, dtype=torch.float32) if has_window_text else None
 
     for b, sample in enumerate(samples):
         n = int(sample["node_x"].shape[1])
@@ -92,8 +98,13 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
         edge_index_context.append(_edge_list_to_tensors(sample["edge_index_context"], T))
         global_candidate_edge_index.append(_single_edge_tensor(sample.get("global_candidate_edge_index")))
         global_candidate_edge_weight.append(_weight_tensor(sample.get("global_candidate_edge_weight")))
+        if node_text_x is not None and sample.get("node_text_x") is not None:
+            text_arr = np.asarray(sample["node_text_x"], dtype=np.float32)
+            node_text_x[b, :, :n, :] = torch.as_tensor(text_arr, dtype=torch.float32)
+        if window_text_x is not None and sample.get("window_text_x") is not None:
+            window_text_x[b] = torch.as_tensor(np.asarray(sample["window_text_x"], dtype=np.float32), dtype=torch.float32)
 
-    return {
+    batch = {
         "cascade_idx": cascade_idx,
         "window_x": window_x,
         "node_x": node_x,
@@ -104,6 +115,21 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
         "node_mask": node_mask,
         "y": y,
     }
+    if node_text_x is not None:
+        batch["node_text_x"] = node_text_x
+    if window_text_x is not None:
+        batch["window_text_x"] = window_text_x
+    return batch
+
+
+def infer_optional_dim(samples: List[Mapping[str, Any]], key: str) -> int:
+    for sample in samples:
+        value = sample.get(key)
+        if value is not None:
+            arr = np.asarray(value)
+            if arr.ndim >= 1:
+                return int(arr.shape[-1])
+    return 0
 
 
 def _edge_list_to_tensors(edge_list: Iterable[Any], T: int) -> List[torch.Tensor]:
