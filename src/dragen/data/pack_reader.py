@@ -86,6 +86,12 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
     d_window_text = infer_optional_dim(samples, "window_text_x") if has_window_text else 0
     node_text_x = torch.zeros(batch_size, T, n_max, d_node_text, dtype=torch.float32) if has_node_text else None
     window_text_x = torch.zeros(batch_size, T, d_window_text, dtype=torch.float32) if has_window_text else None
+    has_node_evidence = any(sample.get("node_evidence_x") is not None for sample in samples)
+    has_window_evidence = any(sample.get("window_evidence_x") is not None for sample in samples)
+    d_node_evidence = infer_optional_dim(samples, "node_evidence_x") if has_node_evidence else 0
+    d_window_evidence = infer_optional_dim(samples, "window_evidence_x") if has_window_evidence else 0
+    node_evidence_x = torch.zeros(batch_size, T, n_max, d_node_evidence, dtype=torch.float32) if has_node_evidence else None
+    window_evidence_x = torch.zeros(batch_size, T, d_window_evidence, dtype=torch.float32) if has_window_evidence else None
 
     for b, sample in enumerate(samples):
         n = int(sample["node_x"].shape[1])
@@ -103,6 +109,11 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
             node_text_x[b, :, :n, :] = torch.as_tensor(text_arr, dtype=torch.float32)
         if window_text_x is not None and sample.get("window_text_x") is not None:
             window_text_x[b] = torch.as_tensor(np.asarray(sample["window_text_x"], dtype=np.float32), dtype=torch.float32)
+        if node_evidence_x is not None and sample.get("node_evidence_x") is not None:
+            arr = np.asarray(sample["node_evidence_x"], dtype=np.float32)
+            node_evidence_x[b, :, :n, :] = stabilize_features(torch.as_tensor(arr, dtype=torch.float32))
+        if window_evidence_x is not None and sample.get("window_evidence_x") is not None:
+            window_evidence_x[b] = stabilize_features(torch.as_tensor(np.asarray(sample["window_evidence_x"], dtype=np.float32), dtype=torch.float32))
 
     batch = {
         "cascade_idx": cascade_idx,
@@ -119,6 +130,10 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
         batch["node_text_x"] = node_text_x
     if window_text_x is not None:
         batch["window_text_x"] = window_text_x
+    if node_evidence_x is not None:
+        batch["node_evidence_x"] = node_evidence_x
+    if window_evidence_x is not None:
+        batch["window_evidence_x"] = window_evidence_x
     return batch
 
 

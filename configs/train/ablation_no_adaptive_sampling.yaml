@@ -2,13 +2,14 @@ run_id: run_0002
 experiment_name: ablation_no_adaptive_sampling
 ablation: no_adaptive_sampling
 data:
-  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree
-  input_variant: MultiScale-HybridTree
+  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
+  input_variant: MultiScale-HybridTree-FeatureV2-GlobalFollow-LabelV4-RoBERTaText
 model:
   name: w/o Adaptive Sampling
   hidden_dim: 64
   role_num: 5
   top_k_global: 20
+  text_semantic_dim: 64
   use_global_prior: true
   use_adaptive_sampling: false
   use_memory: true
@@ -38,4 +39,4 @@ checkpoint:
   resume:
   save_every_epoch: false
 output:
-  out_dir: work/artifacts/ablation_no_adaptive_sampling
+  out_dir: work/artifacts/roberta_only_ablation_no_adaptive_sampling

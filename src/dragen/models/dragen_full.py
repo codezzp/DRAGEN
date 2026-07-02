@@ -25,8 +25,8 @@ class DRAGENFull(nn.Module):
 
     def __init__(
         self,
-        node_input_dim: int = 27,
-        window_input_dim: int = 12,
+        node_input_dim: int = DEFAULT_SCHEMA.node_input_dim,
+        window_input_dim: int = DEFAULT_SCHEMA.window_input_dim,
         hidden_dim: int = 64,
         role_num: int = 5,
         top_k_global: int = 20,
@@ -53,6 +53,8 @@ class DRAGENFull(nn.Module):
         self.use_gate = use_gate
         self.use_uncertainty = use_uncertainty
         self.use_role = use_role
+        if int(text_semantic_dim or 0) <= 0:
+            raise ValueError("RoBERTa-only DRAGEN requires text_semantic_dim > 0.")
 
         self.source_encoder = SourceEvidenceEncoder(DEFAULT_SCHEMA, hidden_dim, dropout, text_semantic_dim=text_semantic_dim)
         self.reader = EvidenceReader(hidden_dim)
@@ -87,8 +89,11 @@ class DRAGENFull(nn.Module):
         global_edge_weights = batch.get("global_candidate_edge_weight")
         B, T, N, _ = node_x.shape
         H = self.hidden_dim
+        node_text_x = batch.get("node_text_x")
+        if node_text_x is None:
+            raise KeyError("RoBERTa-only DRAGEN requires pack field 'node_text_x'. Rebuild the pack with --text-semantic-dir.")
 
-        source_evidence = self.source_encoder(node_x, batch.get("node_text_x"))
+        source_evidence = self.source_encoder(node_x, node_text_x, batch.get("node_evidence_x"))
         e_local = self.reader(source_evidence, "local_role")
         e_obs = self.reader(source_evidence, "gate_obs")
 

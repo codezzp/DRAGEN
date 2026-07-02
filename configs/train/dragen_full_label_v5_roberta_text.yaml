@@ -1,15 +1,16 @@
 run_id: run_0002
-experiment_name: dragen_follow_adaptive_label_v4_stat_text_seed0
+experiment_name: dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed0
 
 data:
-  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v4_stat_text
-  input_variant: MultiScale-HybridTree-GlobalFollow-LabelV4-StatText
+  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
+  input_variant: MultiScale-HybridTree-FeatureV2-GlobalFollow-LabelV5-RoBERTaText
 
 model:
   name: DRAGEN-Full
   hidden_dim: 64
   role_num: 5
   top_k_global: 20
+  text_semantic_dim: 64
   use_global_prior: true
   use_adaptive_sampling: true
   use_memory: true
@@ -51,4 +52,4 @@ checkpoint:
   save_every_epoch: false
 
 output:
-  out_dir: work/artifacts/dragen_follow_adaptive_label_v4_stat_text_seed0
+  out_dir: work/artifacts/dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed0

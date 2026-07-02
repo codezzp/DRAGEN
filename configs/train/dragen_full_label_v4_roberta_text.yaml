@@ -1,9 +1,9 @@
 run_id: run_0002
-experiment_name: dragen_follow_adaptive_label_v4_roberta_text_seed0
+experiment_name: dragen_follow_adaptive_label_v4_roberta_text_feature_v2_seed0
 
 data:
-  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v4_roberta_text
-  input_variant: MultiScale-HybridTree-GlobalFollow-LabelV4-RoBERTaText
+  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
+  input_variant: MultiScale-HybridTree-FeatureV2-GlobalFollow-LabelV4-RoBERTaText
 
 model:
   name: DRAGEN-Full
@@ -52,4 +52,4 @@ checkpoint:
   save_every_epoch: false
 
 output:
-  out_dir: work/artifacts/dragen_follow_adaptive_label_v4_roberta_text_seed0
+  out_dir: work/artifacts/dragen_follow_adaptive_label_v4_roberta_text_feature_v2_seed0

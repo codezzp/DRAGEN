@@ -12,76 +12,38 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 import numpy as np
 
+from dragen.data.feature_schema import NODE_FEATURE_COLUMNS, WINDOW_FEATURE_COLUMNS
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RUN_ID = "run_0002"
 
-WINDOW_FEATURE_COLUMNS = [
-    "num_retweets_cur",
-    "num_retweets_ctx",
-    "num_retweets_cum",
-    "num_active_users_cur",
-    "num_active_users_ctx",
-    "num_active_users_cum",
-    "num_edges_cur",
-    "num_edges_ctx",
-    "heat_cur",
-    "heat_ctx",
-    "heat_cum",
-    "delta_heat_cur",
-]
-
-NODE_FEATURE_COLUMNS = [
-    "is_root",
-    "first_seen_time",
-    "time_since_first_seen",
-    "num_posts_cur",
-    "num_posts_ctx",
-    "num_posts_cum",
-    "in_degree_cur",
-    "out_degree_cur",
-    "in_degree_ctx",
-    "out_degree_ctx",
-    "in_degree_cum",
-    "out_degree_cum",
-    "active_window_count",
-    "num_texts_cur",
-    "num_texts_visible",
-    "avg_text_len_cur",
-    "avg_text_len_visible",
-    "has_tree_feature",
-    "depth",
-    "parent_time_gap",
-    "parent_score",
-    "time_score",
-    "text_score",
-    "activity_score",
-    "depth_penalty",
-    "load_penalty",
-    "root_fallback_flag",
-]
-
-
 def main() -> int:
     args = parse_args()
     run_dir = PROJECT_ROOT / "work" / "runs" / args.run_id
-    feature_dir = args.feature_dir or run_dir / "features" / "obs_1800_step300_multiscale_hybrid_tree"
+    feature_dir = args.feature_dir or run_dir / "features_v2" / "obs_1800_step300_multiscale_hybrid_tree"
     window_dir = args.window_dir or run_dir / "windows" / "obs_1800_step300_multiscale_hybrid_tree"
     labels_path = args.labels or run_dir / "labels" / "weak_event_labels.csv"
     global_candidate_edges = args.global_candidate_edges
     text_semantic_dir = args.text_semantic_dir
+    non_text_evidence_dir = args.non_text_evidence_dir
+    if text_semantic_dir is None:
+        raise SystemExit("RoBERTa-only pack build requires --text-semantic-dir.")
+    if not text_semantic_dir.exists():
+        raise SystemExit(f"Text semantic directory does not exist: {text_semantic_dir}")
     if global_candidate_edges is None:
         default_candidate_edges = run_dir / "global_graph" / "obs_1800_step300_multiscale_hybrid_tree" / "global_candidate_edge_table.csv"
         global_candidate_edges = default_candidate_edges if default_candidate_edges.exists() else None
-    out_dir = args.out_dir or run_dir / "packs" / "obs_1800_step300_multiscale_hybrid_tree"
+    out_dir = args.out_dir or run_dir / "packs" / "obs_1800_step300_multiscale_hybrid_tree_feature_v2"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     labels = read_labels(labels_path)
     handles = {split: (out_dir / f"{split}.pt").open("wb") for split in ["train", "valid", "test"]}
     diagnostics = init_diagnostics(feature_dir, window_dir, labels_path)
     diagnostics["text_semantic_dir"] = str(text_semantic_dir) if text_semantic_dir is not None else ""
+    diagnostics["non_text_evidence_dir"] = str(non_text_evidence_dir) if non_text_evidence_dir is not None else ""
     try:
-        build_packs(feature_dir, window_dir, labels, handles, diagnostics, global_candidate_edges, text_semantic_dir)
+        build_packs(feature_dir, window_dir, labels, handles, diagnostics, global_candidate_edges, text_semantic_dir, non_text_evidence_dir)
     finally:
         for handle in handles.values():
             handle.close()
@@ -100,6 +62,9 @@ def main() -> int:
     text_semantic_dim = read_text_semantic_dim(text_semantic_dir)
     if text_semantic_dim:
         sample_keys.extend(["node_text_x", "window_text_x"])
+    evidence_schema = read_evidence_schema(non_text_evidence_dir)
+    if evidence_schema:
+        sample_keys.extend(["node_evidence_x", "window_evidence_x"])
     meta = {
         "format": "pickle_stream",
         "reader_note": "Read records with repeated pickle.load(fp) until EOFError.",
@@ -108,6 +73,7 @@ def main() -> int:
         "node_feature_columns": NODE_FEATURE_COLUMNS,
         "T": 6,
         "text_semantic_dim": text_semantic_dim,
+        "evidence_v2_schema": evidence_schema,
     }
     write_json(out_dir / "meta.json", meta)
     finalize_diagnostics(diagnostics)
@@ -119,6 +85,15 @@ def main() -> int:
         f"test={diagnostics['split_counts'].get('test', 0)}"
     )
     return 0
+
+
+def read_evidence_schema(path: Optional[Path]) -> Dict[str, Any]:
+    if path is None:
+        return {}
+    schema_path = path / "feature_schema.json"
+    if not schema_path.exists():
+        return {}
+    return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
 def read_text_semantic_dim(path: Optional[Path]) -> int:
@@ -145,6 +120,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--labels", type=Path, default=None)
     parser.add_argument("--global-candidate-edges", type=Path, default=None)
     parser.add_argument("--text-semantic-dir", type=Path, default=None)
+    parser.add_argument("--non-text-evidence-dir", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=None)
     return parser.parse_args()
 
@@ -172,12 +148,14 @@ def build_packs(
     diagnostics: Dict[str, Any],
     global_candidate_edges: Optional[Path] = None,
     text_semantic_dir: Optional[Path] = None,
+    non_text_evidence_dir: Optional[Path] = None,
 ) -> None:
     window_groups = CsvGroupByCascade(feature_dir / "window_features.csv")
     node_groups = CsvGroupByCascade(feature_dir / "node_window_features.csv")
     edge_groups = CsvGroupByCascade(window_dir / "edge_window_table.csv")
     global_groups = CsvGroupByCascade(global_candidate_edges) if global_candidate_edges is not None else None
     text_semantic = TextSemanticFeatures(text_semantic_dir) if text_semantic_dir is not None else None
+    evidence_v2 = EvidenceV2Features(non_text_evidence_dir) if non_text_evidence_dir is not None else None
     diagnostics["global_candidate_edges"] = str(global_candidate_edges) if global_candidate_edges is not None else ""
     try:
         for cascade_idx in sorted(labels, key=lambda x: int(x)):
@@ -200,6 +178,7 @@ def build_packs(
                 int(label["weak_label"]),
                 global_rows,
                 text_semantic=text_semantic,
+                evidence_v2=evidence_v2,
             )
             split = str(label["split"])
             pickle.dump(sample, handles[split], protocol=pickle.HIGHEST_PROTOCOL)
@@ -220,6 +199,7 @@ def make_sample(
     y: int,
     global_rows: Optional[List[Mapping[str, str]]] = None,
     text_semantic: Optional["TextSemanticFeatures"] = None,
+    evidence_v2: Optional["EvidenceV2Features"] = None,
 ) -> Dict[str, Any]:
     window_rows = sorted(window_rows, key=lambda row: int(row["window_idx"]))
     window_ids = [int(row["window_idx"]) for row in window_rows]
@@ -260,6 +240,7 @@ def make_sample(
 
     global_edge_index, global_edge_weight = make_global_candidate_edges(global_rows or [], user_pos)
     node_text_x, window_text_x = make_text_semantic_arrays(text_semantic, cascade_idx, window_ids, users)
+    node_evidence_x, window_evidence_x = make_evidence_v2_arrays(evidence_v2, cascade_idx, window_ids, users)
 
     sample = {
         "cascade_idx": int(cascade_idx),
@@ -275,6 +256,9 @@ def make_sample(
     if node_text_x is not None and window_text_x is not None:
         sample["node_text_x"] = node_text_x
         sample["window_text_x"] = window_text_x
+    if node_evidence_x is not None and window_evidence_x is not None:
+        sample["node_evidence_x"] = node_evidence_x
+        sample["window_evidence_x"] = window_evidence_x
     return sample
 
 
@@ -344,6 +328,55 @@ class TextSemanticFeatures:
             self.node_by_cascade[int(row["cascade_idx"])][(int(row["window_idx"]), int(row["user_idx"]))] = vec
         for row, vec in zip(window_index, window_x):
             self.window_by_cascade[int(row["cascade_idx"])][int(row["window_idx"])] = vec
+
+
+def make_evidence_v2_arrays(
+    evidence_v2: Optional["EvidenceV2Features"],
+    cascade_idx: str,
+    window_ids: List[int],
+    users: List[str],
+) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    if evidence_v2 is None:
+        return None, None
+    T = len(window_ids)
+    N = len(users)
+    node_x = np.zeros((T, N, evidence_v2.node_dim), dtype=np.float32)
+    window_x = np.zeros((T, evidence_v2.window_dim), dtype=np.float32)
+    c = int(cascade_idx)
+    user_pos = {int(user): i for i, user in enumerate(users)}
+    window_pos = {int(window_idx): i for i, window_idx in enumerate(window_ids)}
+    for (window_idx, user_idx), vec in evidence_v2.node_by_cascade.get(c, {}).items():
+        t = window_pos.get(int(window_idx))
+        n = user_pos.get(int(user_idx))
+        if t is not None and n is not None:
+            node_x[t, n] = vec
+    for window_idx, vec in evidence_v2.window_by_cascade.get(c, {}).items():
+        t = window_pos.get(int(window_idx))
+        if t is not None:
+            window_x[t] = vec
+    return node_x, window_x
+
+
+class EvidenceV2Features:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        schema = json.loads((path / "feature_schema.json").read_text(encoding="utf-8"))
+        self.node_columns = list(schema.get("node_evidence_columns", []))
+        self.window_columns = list(schema.get("window_evidence_columns", []))
+        self.node_dim = len(self.node_columns)
+        self.window_dim = len(self.window_columns)
+        self.schema = schema
+        self.node_by_cascade: Dict[int, Dict[tuple[int, int], np.ndarray]] = defaultdict(dict)
+        self.window_by_cascade: Dict[int, Dict[int, np.ndarray]] = defaultdict(dict)
+        with (path / "node_evidence_features.csv").open("r", encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                c = int(row["cascade_idx"])
+                key = (int(row["window_idx"]), int(row["user_idx"]))
+                self.node_by_cascade[c][key] = np.asarray([to_float(row.get(col, 0.0)) for col in self.node_columns], dtype=np.float32)
+        with (path / "window_evidence_features.csv").open("r", encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f):
+                c = int(row["cascade_idx"])
+                self.window_by_cascade[c][int(row["window_idx"])] = np.asarray([to_float(row.get(col, 0.0)) for col in self.window_columns], dtype=np.float32)
 
 
 def parse_local_idx(row: Mapping[str, str], side: str, user_pos: Mapping[str, int]) -> Optional[int]:
@@ -423,6 +456,9 @@ def init_diagnostics(feature_dir: Path, window_dir: Path, labels_path: Path) -> 
         "total_global_candidate_edges": 0,
         "samples_with_text_semantic": 0,
         "text_semantic_dim": 0,
+        "samples_with_evidence_v2": 0,
+        "node_evidence_dim": 0,
+        "window_evidence_dim": 0,
     }
 
 
@@ -445,6 +481,10 @@ def update_diagnostics(diagnostics: Dict[str, Any], split: str, sample: Mapping[
     if sample.get("node_text_x") is not None:
         diagnostics["samples_with_text_semantic"] += 1
         diagnostics["text_semantic_dim"] = int(sample["node_text_x"].shape[-1])
+    if sample.get("node_evidence_x") is not None:
+        diagnostics["samples_with_evidence_v2"] += 1
+        diagnostics["node_evidence_dim"] = int(sample["node_evidence_x"].shape[-1])
+        diagnostics["window_evidence_dim"] = int(sample["window_evidence_x"].shape[-1])
     global_edges = sample.get("global_candidate_edge_index")
     if global_edges is not None and global_edges.size:
         diagnostics["samples_with_global_candidates"] += 1
