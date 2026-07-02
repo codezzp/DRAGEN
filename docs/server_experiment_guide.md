@@ -874,3 +874,249 @@ Example:
 ```bash
 python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
 ```
+
+
+## Current Server Migration Quickstart (run_0002-next)
+
+Use this section as the current entry point for the next experiment version. Older sections above are kept for historical reference.
+
+### 1. Code Branch
+
+On the server:
+
+```bash
+git clone git@github.com:codezzp/DRAGEN.git
+cd DRAGEN
+git checkout experiment/run-0002-next
+```
+
+If the repository already exists:
+
+```bash
+cd DRAGEN
+git fetch codezzp
+git checkout experiment/run-0002-next
+git pull
+```
+
+Confirm:
+
+```bash
+git branch --show-current
+git log --oneline -1
+```
+
+### 2. Required Data for Training Only
+
+If the workstation has already built packs, the server does not need to scan `graph/follow_edges.tsv`.
+
+Recommended minimum transfer for Label-v2 through Label-v5 experiments:
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v2/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v3/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v4/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v5/
+```
+
+Each pack must contain:
+
+```text
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
+```
+
+`meta.json` must list:
+
+```text
+global_candidate_edge_index
+global_candidate_edge_weight
+```
+
+Optional but recommended transfer for diagnostics and audit:
+
+```text
+work/runs/run_0002/labels_v1_score_rank/
+work/runs/run_0002/labels_v2_stratified_score/
+work/runs/run_0002/labels_v3_lf_vote/
+work/runs/run_0002/labels_v4_coordination_network/
+work/runs/run_0002/labels_v5_ensemble_consensus/
+work/runs/run_0002/label_comparison/
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_diagnostics.json
+```
+
+Do not commit or transfer through Git:
+
+```text
+packs/
+work/
+graph/follow_edges.tsv
+*.zip
+```
+
+### 3. Transfer Commands
+
+From workstation with `rsync`:
+
+```bash
+rsync -av --progress packs/ user@server:/path/to/DRAGEN/packs/
+rsync -av --progress work/runs/run_0002/label_comparison/ user@server:/path/to/DRAGEN/work/runs/run_0002/label_comparison/
+```
+
+Windows PowerShell with `scp`:
+
+```powershell
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v2 user@server:/path/to/DRAGEN/packs/
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v3 user@server:/path/to/DRAGEN/packs/
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v4 user@server:/path/to/DRAGEN/packs/
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v5 user@server:/path/to/DRAGEN/packs/
+scp -r work\runs\run_0002\label_comparison user@server:/path/to/DRAGEN/work/runs/run_0002/
+```
+
+### 4. Environment
+
+Install dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install tensorboard PyYAML tqdm
+```
+
+Install PyTorch according to the server CUDA version. Example for CUDA 12.1:
+
+```bash
+python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
+```
+
+Verify:
+
+```bash
+python - <<'PY'
+import torch, yaml, tqdm
+print('torch', torch.__version__)
+print('cuda_available', torch.cuda.is_available())
+print('yaml', yaml.__version__)
+print('tqdm', tqdm.__version__)
+PY
+```
+
+### 5. Config-Driven Training Commands
+
+Use config files for all formal runs.
+
+Label-v2:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v2.yaml
+```
+
+Label-v3:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v3.yaml
+```
+
+Label-v4:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v4.yaml
+```
+
+Label-v5:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
+```
+
+Temporary seed override example:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_follow_adaptive_label_v5_seed1
+```
+
+### 6. Recommended First Server Run
+
+Start with Label-v5 but cap samples for a quick smoke test:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5.yaml \
+  --epochs 1 \
+  --max-train-samples 256 \
+  --max-valid-samples 128 \
+  --max-test-samples 128 \
+  --out-dir work/artifacts/_smoke_label_v5
+```
+
+Then run full Label-v5 training:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
+```
+
+If Label-v5 is too small or unstable, run Label-v4 as the fallback formal label:
+
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v4.yaml
+```
+
+### 7. Output Files to Bring Back
+
+After each run, copy back:
+
+```text
+work/artifacts/<run_name>/reports/
+work/artifacts/<run_name>/predictions/
+work/artifacts/<run_name>/checkpoints/best.pt
+```
+
+If checkpoint files are too large, copy at least:
+
+```text
+reports/metrics.json
+reports/loss_breakdown.json
+reports/epoch_metrics.csv
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+predictions/event_predictions.csv
+predictions/sampled_global_neighbors.csv
+```
+
+### 8. Rebuilding Labels or Packs on Server
+
+Only do this when necessary. If rebuilding packs from existing labels/features, transfer:
+
+```text
+work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree/
+work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
+work/runs/run_0002/labels_v2_stratified_score/
+work/runs/run_0002/labels_v3_lf_vote/
+work/runs/run_0002/labels_v4_coordination_network/
+work/runs/run_0002/labels_v5_ensemble_consensus/
+```
+
+Example rebuild for Label-v5:
+
+```bash
+python scripts/13_build_packs.py \
+  --run-id run_0002 \
+  --labels work/runs/run_0002/labels_v5_ensemble_consensus/weak_event_labels.csv \
+  --global-candidate-edges work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv \
+  --out-dir packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v5
+```
+
+If the server must rebuild the global candidate table, transfer `graph/follow_edges.tsv` and run:
+
+```bash
+python scripts/10_build_global_candidate_edges.py --run-id run_0002 --follow-edges graph/follow_edges.tsv
+```
+
+This scans a large graph and should not be part of normal training runs.

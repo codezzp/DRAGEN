@@ -324,3 +324,5 @@ work/runs/run_0002/label_comparison/label_version_comparison.csv
 ```
 
 Use `configs/train/dragen_full_label_v2.yaml` through `dragen_full_label_v5.yaml` for label-version training runs.
+
+Training command index: `docs/training_commands.md`. Server migration quickstart: `docs/server_experiment_guide.md`. Configuration guide: `docs/configuration.md`.
