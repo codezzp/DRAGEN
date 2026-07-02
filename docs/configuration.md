@@ -348,3 +348,34 @@ python scripts/19_analyze_predictions.py --config configs/train/<analysis_config
 - Keep CLI overrides out of final experiment records unless the override is intentional and documented.
 - Keep debug configs separate from formal configs.
 - When adding a new YAML field, update `src/dragen/config.py::flatten_config` if a script needs to consume it.
+
+
+## Server Usage With Configs
+
+Server runs should not rely on long hand-written CLI commands. Use these config files after transferring the corresponding `packs/` directories:
+
+```text
+configs/train/dragen_full_label_v2.yaml
+configs/train/dragen_full_label_v3.yaml
+configs/train/dragen_full_label_v4.yaml
+configs/train/dragen_full_label_v5.yaml
+```
+
+The pack paths expected by those configs are:
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v2/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v3/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v4/
+packs/obs_1800_step300_multiscale_hybrid_tree_global_follow_label_v5/
+```
+
+A minimal server workflow is:
+
+```bash
+git checkout experiment/run-0002-next
+python -m pip install -r requirements.txt
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
+```
+
+See `docs/server_experiment_guide.md` for file transfer and `docs/training_commands.md` for the command index.
