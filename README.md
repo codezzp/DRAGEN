@@ -1,328 +1,447 @@
 # DRAGEN
 
-DRAGEN 是一个用于级联预测实验的工程目录。当前目录的核心约定是：每批数据固定放在 `work/runs/<run_id>/`，命令入口放在 `scripts/`，真正的实现逻辑放在 `src/dragen/`。
-
-当前阶段已经完成工程结构、数据边界、30m/5m 窗口划分、HybridTree Light 全量树、MultiScale HybridTree 窗口、统计特征、弱监督标签、事件级 pack 和 DRAGEN-Full debug 训练。后续重点转入 baseline、DRAGEN-Full 正式训练、消融和结果表，不再继续扩展预处理结构。
-
-## 目录结构
+DRAGEN is the experiment repository for organized cascade prediction. The current active line is:
 
 ```text
-DRAGEN/
-  configs/                 # 实验配置，按 data/window/model/train 分组。
-  docs/                    # 项目文档，不放运行代码。
-  scripts/                 # 只放命令入口脚本。
-  src/dragen/              # 核心源码。
-  work/
-    runs/<run_id>/         # 每个 run 是一个独立实验数据单元。
-    artifacts/             # 跨 run 的实验产物，例如日志、模型、报告。
-  tests/                   # 小规模验证测试。
-  notebooks/               # 临时分析 notebook，不作为正式代码。
+Feature-v2 + RoBERTa Text + Adaptive Global Sampling + Global Follow candidates
 ```
 
-`work/` 已在 `.gitignore` 中排除，不提交实验数据、窗口 CSV、pack、checkpoint 或报告产物。需要提交的是代码、配置和文档摘要。
-
-## 数据原则
-
-不要把数据散到项目根目录。每批数据固定保留在：
+Current branch:
 
 ```text
-work/runs/<run_id>/
-  processed/
-  org_task/
-  time_distribution/
-  time_distribution/dev_cascade_lists/
+experiment/run-0002-roberta-only
 ```
 
-后续训练和评估表应优先使用稳定的索引字段，例如 `cascade_idx`、`tweet_idx`、`user_idx`。真实原始 ID 只保留在映射文件或调试文件中，不作为模型输入。
-
-当前窗口链路使用 `work/runs/<run_id>/org_task/` 作为输入，生成结果固定写入：
+Large experiment artifacts are intentionally ignored by Git:
 
 ```text
-work/runs/<run_id>/windows/obs_<obs>_win<window>_step<step>/
+work/
+packs/
+graph/follow_edges.tsv
+*.zip
 ```
 
-窗口构建不会修改 `processed/` 或 `org_task/` 下的原始中间表。
+Keep code, configs, and documentation in Git. Transfer packs and artifacts with `rsync`, `scp`, or another file transfer tool.
 
-当前实验闭环的本地产物约定如下：
+## Current Status
+
+The workstation has already built the formal RoBERTa-text packs for `run_0002`:
 
 ```text
-work/runs/<run_id>/edges/
-work/runs/<run_id>/windows/
-work/runs/<run_id>/features/
-work/runs/<run_id>/labels/
-work/runs/<run_id>/packs/
-work/artifacts/
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
 ```
 
-## 脚本原则
+Use `v2` as the main label version. Use `v5` as the strict-label robustness check. `v3` and `v4` are available for later comparison, but they are not the first training priority.
 
-`scripts/` 只做入口，不堆核心逻辑。入口脚本应该导入 `src/dragen` 里的 `main()` 再执行：
-
-```python
-from dragen.windowing.window_builder import main
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-```
-
-真正的数据处理、窗口划分、特征构建、训练和评估逻辑都应该放在 `src/dragen/...`。
-
-## 当前保留入口
+Pack input dimensions verified locally:
 
 ```text
-scripts/01_build_org_tables.py
-scripts/02_analyze_time_distribution.py
-scripts/03_build_dev_cascade_lists.py
-scripts/05_build_windows.py
-scripts/06_build_inferred_tree.py
-scripts/07_visualize_tree.py
-scripts/08_export_reports.py
-scripts/11_build_features.py
-scripts/12_build_weak_labels.py
-scripts/13_build_packs.py
+window_x      = (B, 6, 24)
+node_x        = (B, 6, N, 47)
+node_text_x   = (B, 6, N, 64)
+window_text_x = (B, 6, 64)
 ```
 
-窗口入口会从 `work/runs/<run_id>/org_task/` 读取标准任务表，并写出四张窗口表。默认使用星形边：
-
-```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode star
-```
-
-输出目录：
+Text semantic notes:
 
 ```text
-work/runs/run_0002/windows/obs_1800_win300_step300_star/
-  window_table.csv
-  node_window_table.csv
-  edge_window_table.csv
-  text_window_table.csv
-  cascade_window_index.json
-  window_diagnostics.json
+RoBERTa root embedding    = (85263, 768)
+RoBERTa retweet embedding = (193331, 768)
+Reduced dimension         = 64
+node_text_features        = (567718, 64)
+window_text_features      = (511578, 64)
 ```
 
-`run_0002` 的 30m/5m 完整构建结果已经生成，诊断摘要如下：
+Many retweet rows in `text_window_table.csv` have no raw text. Those nodes receive zero `node_text_x`; every window still has root text semantics in `window_text_x`.
 
-```text
-cascades: 85263
-windows_per_cascade: 6
-window_rows: 511578
-node_window_rows: 5940259
-edge_window_rows: 1392078
-text_window_rows: 6032866
-root_text_window_rows: 511578
-retweet_text_early_violations: 0
-```
+## Server Setup
 
-当前正式树结构使用不扫描关注图的 HybridTree Light：
-
-```powershell
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method hybrid --max-observation-seconds 1800 --out-dir work/runs/run_0002/edges/hybrid_tree_light
-```
-
-正式窗口输入有三套：
-
-```text
-work/runs/run_0002/windows/obs_1800_win300_step300/
-work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree/
-work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
-```
-
-注意：`time_only` 会把大级联构造成接近线性的深链，只作为结构对照或反例。当前不继续扫描关注图，不继续扩展树结构设计。
-
-树形结构可视化入口：
-
-```powershell
-python scripts/07_visualize_tree.py --run-id run_0002 --cascade-id 78857 --tree-edges work/runs/run_0002/edges/_viz_cascade_78857_branching/inferred_tree_edge_table.csv --out work/runs/run_0002/edges/_viz_cascade_78857_branching/cascade_78857_branching_tree.svg --max-nodes 180
-```
-
-窗口策略现在有两个层次：
-
-- `Fixed-5m`：当前已生成的 baseline，非重叠 5 分钟窗口。
-- `Causal MultiScale`：端点对齐多尺度因果窗口，每 5 分钟一个端点，同时生成 current 5m、context 10m 和 cumulative 历史统计。
-
-正式 MultiScale HybridTree 命令：
-
-```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree
-```
-
-## 实验闭环入口
-
-统计特征：
-
-```powershell
-python scripts/11_build_features.py --run-id run_0002 --tree-edges work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv
-```
-
-输出：
-
-```text
-work/runs/run_0002/features/obs_1800_win300_step300_star/
-work/runs/run_0002/features/obs_1800_win300_step300_hybrid_tree/
-work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree/
-```
-
-弱监督标签：
-
-```powershell
-python scripts/12_build_weak_labels.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree
-```
-
-pack：
-
-```powershell
-python scripts/13_build_packs.py --run-id run_0002 --feature-dir work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree --labels work/runs/run_0002/labels/weak_event_labels.csv --out-dir work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree
-```
-
-当前环境未安装 torch，`train.pt`、`valid.pt`、`test.pt` 是 pickle stream 格式；读取方式见对应 `meta.json`。
-
-下一步入口应优先补训练评估：CAC-Stat、Campaign-GNN、Temporal-GNN、DRAGEN-Full，以及 `w/o Tree`、`w/o MultiScale`、`w/o Role`、`w/o Memory`、`w/o Global Prior`、`w/o Adaptive Sampling`、`w/o Gate`、`w/o Uncertainty` 消融。
-
-## 配置驱动训练
-
-训练、消融、结果表和预测分析脚本现在支持：
+Clone and checkout the active branch:
 
 ```bash
---config configs/train/<name>.yaml
+git clone git@github.com:codezzp/DRAGEN.git
+cd DRAGEN
+git checkout experiment/run-0002-roberta-only
 ```
 
-参数优先级：
+If the repository already exists:
+
+```bash
+cd DRAGEN
+git fetch codezzp
+git checkout experiment/run-0002-roberta-only
+git pull
+```
+
+Recommended Python environment:
 
 ```text
-脚本默认值 < YAML 配置 < CLI 覆盖
+Python >= 3.10
+PyTorch with CUDA
+numpy pandas scipy scikit-learn tqdm pyyaml matplotlib networkx
+transformers tokenizers safetensors huggingface_hub
 ```
 
-DRAGEN-Full 正式训练：
+Install the non-PyTorch dependencies:
 
 ```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_run0002.yaml
+python -m pip install -r requirements.txt
+python -m pip install numpy pandas scipy scikit-learn tqdm pyyaml matplotlib networkx
+python -m pip install transformers accelerate datasets sentencepiece tokenizers safetensors huggingface_hub
+python -m pip install tensorboard
 ```
 
-Debug 训练：
+Install PyTorch according to the server CUDA version. Example for CUDA 12.8 wheels:
 
 ```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_debug.yaml
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
-临时覆盖配置：
+Verify CUDA:
 
 ```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_run0002.yaml \
-  --seed 1 \
-  --out-dir work/artifacts/dragen_full_run0002_seed1 \
-  --no-tensorboard
+python - <<'PY'
+import torch
+print('torch:', torch.__version__)
+print('torch cuda:', torch.version.cuda)
+print('cuda available:', torch.cuda.is_available())
+if torch.cuda.is_available():
+    print('gpu:', torch.cuda.get_device_name(0))
+PY
 ```
 
-消融训练：
+## Data To Transfer To Server
 
-```bash
-python scripts/17_run_ablation.py --config configs/train/ablation_no_role.yaml
-python scripts/17_run_ablation.py --config configs/train/ablation_no_memory.yaml
-python scripts/17_run_ablation.py --config configs/train/ablation_no_global_prior.yaml
-python scripts/17_run_ablation.py --config configs/train/ablation_no_adaptive_sampling.yaml
-python scripts/17_run_ablation.py --config configs/train/ablation_no_gate.yaml
-python scripts/17_run_ablation.py --config configs/train/ablation_no_uncertainty.yaml
-```
-
-`w/o Tree` 和 `w/o MultiScale` 只切换输入 pack，也可直接用训练脚本读取配置：
-
-```bash
-python scripts/16_train_dragen_full.py --config configs/train/ablation_no_tree.yaml
-python scripts/16_train_dragen_full.py --config configs/train/ablation_no_multiscale.yaml
-```
-
-每次训练开始会写入：
+For training only, transfer these two directories first:
 
 ```text
-reports/resolved_config.yaml
-reports/command.txt
-reports/git_info.json
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
 ```
 
-最终结果表：
-
-```bash
-python scripts/18_export_result_tables.py \
-  --config configs/train/result_tables_run0002.yaml
-```
-
-训练后分析：
-
-```bash
-python scripts/19_analyze_predictions.py \
-  --artifact-dir work/artifacts/dragen_full_run0002_seed0
-```
-
-## 文档
-
-- [docs/window_design.md](docs/window_design.md)：窗口划分设计。
-- [docs/data_schema.md](docs/data_schema.md)：核心数据表字段。
-- [docs/evidence_features.md](docs/evidence_features.md)：多源证据特征设计。
-- [docs/graph_design.md](docs/graph_design.md)：星形边与代理传播树设计。
-- [docs/model_design.md](docs/model_design.md)：DRAGEN 模型边界和组件。
-- [docs/experiment_protocol.md](docs/experiment_protocol.md)：实验流程约定。
-- [docs/run_notes.md](docs/run_notes.md)：实验记录。
-- [docs/results_summary.md](docs/results_summary.md)：当前实验摘要。
-- [docs/server_experiment_guide.md](docs/server_experiment_guide.md)：服务器迁移与训练说明。
-
-
-## Current Data/Label Update (2026-07-02)
-
-The current `labels/weak_event_labels.csv` is Label-v1: a debug weak-label set based on global `weak_score` quantiles. It is useful for pipeline closure but should not be the final thesis label set because the score components overlap with model input statistics. See `docs/label_design.md` for the recommended Label-v2 design.
-
-The global follow candidate pool has been built from `graph/follow_edges.tsv` and packed into the MultiScale HybridTree packs:
+Each pack must contain:
 
 ```text
-work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
-work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
 ```
 
-Current pack samples include:
+Optional, for later label comparison:
 
 ```text
-global_candidate_edge_index
-global_candidate_edge_weight
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
 ```
 
-Build order for the current candidate-pool pack is:
-
-```powershell
-python scripts/10_build_global_candidate_edges.py --run-id run_0002 --follow-edges graph/follow_edges.tsv
-python scripts/13_build_packs.py --run-id run_0002
-```
-
-`w/o Adaptive Sampling` keeps the same candidate pool but disables the learnable sampler scoring branch.
-
-
-## Configuration-Driven Runs
-
-Use YAML configs for formal runs. See `docs/configuration.md` for supported sections, field mapping, priority rules, label-version configs, ablation rules, and reproducibility metadata.
-
-Label-version training configs are available at:
-
-```text
-configs/train/dragen_full_label_v2.yaml
-configs/train/dragen_full_label_v3.yaml
-configs/train/dragen_full_label_v4.yaml
-configs/train/dragen_full_label_v5.yaml
-```
-
-Example:
-
-```bash
-python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5.yaml
-```
-
-
-Label comparison output:
+Optional audit files:
 
 ```text
 work/runs/run_0002/label_comparison/label_version_comparison.csv
+work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64/text_semantic_feature_meta.json
+work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree/feature_diagnostics.json
 ```
 
-Use `configs/train/dragen_full_label_v2.yaml` through `dragen_full_label_v5.yaml` for label-version training runs.
+You do not need to transfer `graph/follow_edges.tsv` for normal training, because the global candidate edges are already packed into the `.pt` files.
 
-Training command index: `docs/training_commands.md`. Server migration quickstart: `docs/server_experiment_guide.md`. Configuration guide: `docs/configuration.md`.
+Example transfer from Windows PowerShell:
+
+```powershell
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text user@server:/path/to/DRAGEN/packs/
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text user@server:/path/to/DRAGEN/packs/
+```
+
+Example transfer with `rsync`:
+
+```bash
+rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/ \
+  user@server:/path/to/DRAGEN/packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/
+
+rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text/ \
+  user@server:/path/to/DRAGEN/packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text/
+```
+
+## Stage 0: Smoke Test
+
+First verify that the server can read the v2 pack and collate text fields:
+
+```bash
+python - <<'PY'
+import sys
+sys.path.insert(0, 'src')
+from dragen.data.pack_reader import PickleStreamDataset, collate_fn
+p = 'packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/train.pt'
+ds = PickleStreamDataset(p, max_samples=2, split='train-smoke')
+b = collate_fn([ds[0], ds[1]])
+print('window_x', tuple(b['window_x'].shape))
+print('node_x', tuple(b['node_x'].shape))
+print('node_text_x', tuple(b['node_text_x'].shape))
+print('window_text_x', tuple(b['window_text_x'].shape))
+print('global edges', [tuple(x.shape) for x in b['global_candidate_edge_index']])
+PY
+```
+
+Then run a one-epoch small DRAGEN smoke test:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --epochs 1 \
+  --max-train-samples 256 \
+  --max-valid-samples 128 \
+  --max-test-samples 128 \
+  --out-dir work/artifacts/_smoke_dragen_v2_roberta_text
+```
+
+Check outputs:
+
+```bash
+ls work/artifacts/_smoke_dragen_v2_roberta_text/reports
+ls work/artifacts/_smoke_dragen_v2_roberta_text/predictions
+```
+
+## Main Training Plan
+
+Run order:
+
+```text
+1. Label-v2 DRAGEN-Full seed 0
+2. Label-v2 DRAGEN-Full seed 1 and seed 2 if time allows
+3. Label-v2 core ablations
+4. Label-v5 strict-label robustness run
+5. Export tables and analyze predictions
+```
+
+Current baseline entry points are placeholders in this branch:
+
+```text
+src/dragen/baselines/cac_stat.py
+src/dragen/baselines/campaign_gnn.py
+src/dragen/baselines/temporal_gnn.py
+```
+
+Do not expect `scripts/14_train_cac_stat.py` or `scripts/15_train_gnn_baselines.py` to produce formal baseline results until those implementations are added. For now, the server-ready path is DRAGEN-Full and DRAGEN ablations.
+
+## Label-v2 Main DRAGEN-Full
+
+Seed 0:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml
+```
+
+Seed 1:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed1
+```
+
+Seed 2:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --seed 2 \
+  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed2
+```
+
+Resume from `last.pt`:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --resume work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
+```
+
+## Label-v5 Strict Robustness
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5_roberta_text.yaml
+```
+
+Seed override example:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5_roberta_text.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed1
+```
+
+## Ablation Runs
+
+The existing ablation YAML files currently point to Label-v4 packs. If the thesis main ablation must use Label-v2, override `--pack-dir` and `--out-dir` from the CLI.
+
+Common v2 pack:
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+```
+
+Core module ablations on Label-v2:
+
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_global_prior.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_global_prior
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_role.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_role
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_memory.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_memory
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_gate.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_gate
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_uncertainty.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_uncertainty
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_adaptive_sampling.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_adaptive_sampling
+```
+
+`w/o RoBERTa Text`, `w/o MultiScale Context`, and `w/o HybridTree` need compatible non-text or alternate-structure packs. Do not run those ablations with the current RoBERTa-only pack unless the code/config is updated for that input.
+
+## Metrics And Thresholds
+
+Current metric code still computes classification metrics at `threshold = 0.5`. For formal thesis reporting, update or post-process predictions with this policy:
+
+```text
+Select the threshold that maximizes F1 on the validation set, then apply that fixed threshold to the test set.
+```
+
+Prediction files are written under:
+
+```text
+work/artifacts/<run>/predictions/
+```
+
+Important files:
+
+```text
+valid_event_predictions.csv
+test_event_predictions.csv
+event_predictions.csv
+node_window_predictions.csv
+role_distribution.csv
+gate_weights.csv
+uncertainty.csv
+event_attention.csv
+sampled_global_neighbors.csv
+```
+
+Run post-training analysis:
+
+```bash
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0
+```
+
+Export result tables after runs finish:
+
+```bash
+python scripts/18_export_result_tables.py \
+  --run-dirs \
+    work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+    work/artifacts/dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed0 \
+  --ablation-run-dirs \
+    work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+    work/artifacts/label_v2_ablation_no_global_prior \
+    work/artifacts/label_v2_ablation_no_role \
+    work/artifacts/label_v2_ablation_no_memory \
+    work/artifacts/label_v2_ablation_no_gate \
+    work/artifacts/label_v2_ablation_no_uncertainty \
+    work/artifacts/label_v2_ablation_no_adaptive_sampling \
+  --full-run-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+  --out-dir work/artifacts/reports
+```
+
+Expected final tables:
+
+```text
+work/artifacts/reports/main_results.csv
+work/artifacts/reports/risk_retrieval_results.csv
+work/artifacts/reports/ablation_results.csv
+```
+
+## Output Files To Copy Back
+
+For each server run, copy back:
+
+```text
+work/artifacts/<run>/reports/
+work/artifacts/<run>/predictions/
+work/artifacts/<run>/checkpoints/best.pt
+```
+
+If checkpoints are too large, copy at least:
+
+```text
+reports/metrics.json
+reports/loss_breakdown.json
+reports/epoch_metrics.csv
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+predictions/*.csv
+```
+
+## Rebuilding Packs On Server
+
+Normal server training should not rebuild packs. If rebuilding is necessary, transfer these inputs first:
+
+```text
+work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree/
+work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
+work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64/
+work/runs/run_0002/labels_v2_stratified_score/
+work/runs/run_0002/labels_v5_ensemble_consensus/
+```
+
+Example rebuild for Label-v2:
+
+```bash
+python scripts/13_build_packs.py \
+  --run-id run_0002 \
+  --feature-dir work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree \
+  --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree \
+  --labels work/runs/run_0002/labels_v2_stratified_score/weak_event_labels.csv \
+  --global-candidate-edges work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv \
+  --text-semantic-dir work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64 \
+  --out-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+```
+
+Do not rebuild `graph/follow_edges.tsv` on the server unless absolutely necessary; that scan is large and is already reflected in the packed global candidate fields.
+
+## More Docs
+
+```text
+docs/training_commands.md       RoBERTa preprocessing and pack build commands
+docs/results_summary.md         Current experiment status
+docs/label_design.md            Weak label versions
+docs/configuration.md           YAML config rules
+docs/server_experiment_guide.md Historical server migration notes
+```
