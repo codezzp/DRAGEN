@@ -7,7 +7,7 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Iterator, List, Mapping, Sequence
 
 import torch
 from torch.utils.data import DataLoader
@@ -41,10 +41,7 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
     )
     loader_kwargs = build_dataloader_kwargs(args, device)
     print(f"dataloader kwargs: {loader_kwargs}", flush=True)
-    loaders = {
-        split: DataLoader(ds, batch_size=args.batch_size, shuffle=(split == "train"), collate_fn=collate_fn, **loader_kwargs)
-        for split, ds in datasets.items()
-    }
+    loaders = build_loaders(datasets, args, loader_kwargs)
     model = DRAGENFull(
         hidden_dim=args.hidden_dim,
         role_num=args.role_num,
@@ -157,6 +154,74 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         writer.close()
     return {"metrics": metrics, "history": history}
 
+
+class NodeBucketBatchSampler:
+    """Batch samples with similar node counts to reduce padding waste."""
+
+    def __init__(
+        self,
+        node_counts: Sequence[int],
+        batch_size: int,
+        *,
+        shuffle: bool,
+        seed: int,
+        bucket_size_multiplier: int = 50,
+    ) -> None:
+        self.node_counts = list(node_counts)
+        self.batch_size = max(int(batch_size), 1)
+        self.shuffle = bool(shuffle)
+        self.seed = int(seed)
+        self.bucket_size = max(self.batch_size * max(int(bucket_size_multiplier), 1), self.batch_size)
+        self.epoch = 0
+
+    def __iter__(self) -> Iterator[List[int]]:
+        rng = random.Random(self.seed + self.epoch)
+        self.epoch += 1
+        indices = sorted(range(len(self.node_counts)), key=lambda idx: self.node_counts[idx])
+        batches: List[List[int]] = []
+        for start in range(0, len(indices), self.bucket_size):
+            bucket = indices[start : start + self.bucket_size]
+            if self.shuffle:
+                rng.shuffle(bucket)
+            for batch_start in range(0, len(bucket), self.batch_size):
+                batches.append(bucket[batch_start : batch_start + self.batch_size])
+        if self.shuffle:
+            rng.shuffle(batches)
+        return iter(batches)
+
+    def __len__(self) -> int:
+        return (len(self.node_counts) + self.batch_size - 1) // self.batch_size
+
+
+def build_loaders(datasets: Mapping[str, Any], args: Any, loader_kwargs: Dict[str, Any]) -> Dict[str, DataLoader]:
+    loaders: Dict[str, DataLoader] = {}
+    use_buckets = bool(getattr(args, "bucket_by_nodes", False))
+    bucket_multiplier = int(getattr(args, "bucket_size_multiplier", 50) or 50)
+    for split, ds in datasets.items():
+        if use_buckets:
+            node_counts = [int(sample["node_x"].shape[1]) for sample in ds.samples]
+            sampler = NodeBucketBatchSampler(
+                node_counts,
+                args.batch_size,
+                shuffle=(split == "train"),
+                seed=int(getattr(args, "seed", 0)),
+                bucket_size_multiplier=bucket_multiplier,
+            )
+            print(
+                f"{split} bucket_by_nodes=1 batches={len(sampler)} "
+                f"min_nodes={min(node_counts) if node_counts else 0} max_nodes={max(node_counts) if node_counts else 0}",
+                flush=True,
+            )
+            loaders[split] = DataLoader(ds, batch_sampler=sampler, collate_fn=collate_fn, **loader_kwargs)
+        else:
+            loaders[split] = DataLoader(
+                ds,
+                batch_size=args.batch_size,
+                shuffle=(split == "train"),
+                collate_fn=collate_fn,
+                **loader_kwargs,
+            )
+    return loaders
 
 def build_dataloader_kwargs(args: Any, device: torch.device) -> Dict[str, Any]:
     num_workers = max(int(getattr(args, "num_workers", 0) or 0), 0)

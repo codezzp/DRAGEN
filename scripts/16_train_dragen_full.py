@@ -45,6 +45,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-valid-samples", type=int, default=None)
     parser.add_argument("--max-test-samples", type=int, default=None)
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--bucket-by-nodes", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--bucket-size-multiplier", type=int, default=50)
     parser.add_argument("--pin-memory", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--persistent-workers", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--prefetch-factor", type=int, default=None)
