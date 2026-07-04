@@ -1,57 +1,41 @@
 # Results Summary
 
-## Current Stage
+## 当前阶段
 
-As of 2026-07-01, preprocessing is frozen for `run_0002`. The project has moved from window and structure validation into the experiment-closure stage.
-
-Current branch:
+截至当前分支：
 
 ```text
-experiment/run-0002-code
+experiment/run-0002-roberta-only
 ```
 
-Repository policy:
+`run_0002` 的预处理、HybridTree、MultiScale 窗口、feature_v2、RoBERTa text、global follow candidate、Label-v2 到 Label-v5 pack 已经完成。当前重点已经转入服务器正式训练，不再扩展预处理结构。
+
+Git 只提交代码、配置和文档。以下目录不进 Git：
 
 ```text
-work/ is ignored and must not be committed.
-graph/follow_edges.tsv is excluded from the pushed experiment branch.
+work/
+packs/
+graph/follow_edges.tsv
+*.zip
 ```
 
-The current experiment execution is config-driven. Training, ablation, analysis, and result-table scripts support:
+## 已完成输入
 
-```bash
---config configs/train/<name>.yaml
-```
-
-Priority:
+### MultiScale HybridTree 窗口
 
 ```text
-script defaults < YAML config < CLI overrides
+work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
 ```
 
-Each training run writes reproducibility metadata:
-
-```text
-reports/resolved_config.yaml
-reports/command.txt
-reports/git_info.json
-```
-
-## Completed Inputs
-
-### Fixed-5m Star
-
-```text
-work/runs/run_0002/windows/obs_1800_win300_step300/
-```
-
-Summary:
+规模：
 
 ```text
 cascades = 85263
 window_rows = 511578
 node_window_rows = 5940259
-edge_window_rows = 1392078
+edge_window_rows = 4019952
+current_edges = 1392078
+context_edges = 2627874
 text_window_rows = 6032866
 retweet_text_early_violations = 0
 ```
@@ -62,7 +46,7 @@ retweet_text_early_violations = 0
 work/runs/run_0002/edges/hybrid_tree_light/
 ```
 
-Summary:
+规模：
 
 ```text
 cascades = 85263
@@ -75,298 +59,227 @@ root_child_ratio = 0.101
 text_sim_lift = 0.00107
 ```
 
-### Fixed-5m HybridTree
+### Feature-v2
 
 ```text
-work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree/
+work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree/
 ```
 
-Summary:
+诊断：
 
 ```text
-window_rows = 511578
-node_window_rows = 5940259
-edge_window_rows = 1392078
-text_window_rows = 6032866
-retweet_text_early_violations = 0
+window_features rows = 511578
+node_window_features rows = 5940259
+window_nan_count = 0
+window_inf_count = 0
+node_nan_count = 0
+node_inf_count = 0
 ```
 
-### MultiScale HybridTree
+输入维度：
 
 ```text
-work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
-```
-
-Summary:
-
-```text
-window_rows = 511578
-node_window_rows = 5940259
-edge_window_rows = 4019952
-current_edges = 1392078
-context_edges = 2627874
-text_window_rows = 6032866
-retweet_text_early_violations = 0
-```
-
-## Feature, Label, And Pack Outputs
-
-Feature directories:
-
-```text
-work/runs/run_0002/features/obs_1800_win300_step300_star/
-work/runs/run_0002/features/obs_1800_win300_step300_hybrid_tree/
-work/runs/run_0002/features/obs_1800_step300_multiscale_hybrid_tree/
-```
-
-Feature validation:
-
-```text
-window_features rows = 511578 for each variant
-node_window_features rows = 5940259 for each variant
-nan_count = 0
-inf_count = 0
-```
-
-Weak labels:
-
-```text
-work/runs/run_0002/labels/weak_event_labels.csv
-positive = 17053
-negative = 42631
-ignore = 25579
-```
-
-Pack:
-
-```text
-work/runs/run_0002/packs/obs_1800_step300_multiscale_hybrid_tree/
-train = 41750
-valid = 9175
-test = 8759
+window_x = 24
+node_x = 47
 T = 6
-edge_alignment_errors = 0
 ```
 
-The current `.pt` files are pickle streams because the local environment does not have `torch` installed.
+### RoBERTa Text
 
-## Next Work
-
-## DRAGEN-Full Debug
-
-DRAGEN-Full has replaced the previous light-model plan. The implementation keeps the thesis Chapter 4 modules:
+原始 embedding：
 
 ```text
-source evidence encoding
-selective evidence reading
-local role encoding
-adaptive global sampling
-global prior encoding
-temporal memory
-manipulation state accumulation
-evidence shock
-prior-observation Bayesian gate
-uncertainty head
-event attention pooling
+work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext/
+root_text_emb.npy    shape = (85263, 768)
+retweet_text_emb.npy shape = (193331, 768)
 ```
 
-Debug command completed for one epoch:
+64 维降维：
 
 ```text
-out_dir = work/artifacts/dragen_full_debug
-train_loss = 0.3926
-valid_auc = 0.9113
-test_auc = 0.9005
+work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext_reduced64/
+root_text_emb64.npy    shape = (85263, 64)
+retweet_text_emb64.npy shape = (193331, 64)
 ```
 
-Exported files:
+窗口聚合语义：
 
 ```text
-reports/metrics.json
-reports/loss_breakdown.json
-predictions/event_predictions.csv
-predictions/node_window_predictions.csv
-predictions/role_distribution.csv
-predictions/gate_weights.csv
-predictions/uncertainty.csv
-predictions/event_attention.csv
-predictions/sampled_global_neighbors.csv
-checkpoints/best.pt
-checkpoints/last.pt
-reports/epoch_metrics.csv
-reports/resolved_config.yaml
-reports/command.txt
-reports/git_info.json
+work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64/
+node_text_features.npy   shape = (567718, 64)
+window_text_features.npy shape = (511578, 64)
 ```
 
-Roles are fixed to:
+注意：大量 retweet 行没有原始文本，因此无文本节点的 `node_text_x` 为零向量；每个窗口仍有 root 文本语义，`window_text_x` 完整覆盖窗口。
+
+### Global Follow Candidate
 
 ```text
-producer
-amplifier
-suppressor
-reframer
-ordinary
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
 ```
 
-No role outside this fixed set is used in DRAGEN-Full outputs.
-
-## Training Controls
-
-DRAGEN-Full training now supports per-epoch persistence, resume, and TensorBoard:
+已写入 pack 字段：
 
 ```text
-reports/epoch_metrics.csv
-reports/loss_breakdown.json
-checkpoints/last.pt
-checkpoints/best.pt
-optional checkpoints/epoch_{epoch}.pt
-optional <out-dir>/tb
+global_candidate_edge_index
+global_candidate_edge_weight
 ```
 
-Recommended config commands:
-
-```bash
-python scripts/16_train_dragen_full.py --config configs/train/dragen_full_debug.yaml
-python scripts/16_train_dragen_full.py --config configs/train/dragen_full_run0002.yaml
-```
-
-Resume:
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_run0002.yaml \
-  --resume work/artifacts/dragen_full_run0002_seed0/checkpoints/last.pt
-```
-
-TensorBoard:
-
-```bash
-tensorboard --logdir work/artifacts --host 0.0.0.0 --port 6006
-```
-
-## Configured Experiments
-
-Main DRAGEN-Full configs:
+服务器正常训练不需要重新扫描：
 
 ```text
-configs/train/dragen_full_debug.yaml
-configs/train/dragen_full_run0002.yaml
+graph/follow_edges.tsv
 ```
 
-Ablation configs:
+## 标签版本
+
+标签对比：
 
 ```text
-configs/train/ablation_no_tree.yaml
-configs/train/ablation_no_multiscale.yaml
-configs/train/ablation_no_role.yaml
-configs/train/ablation_no_memory.yaml
-configs/train/ablation_no_global_prior.yaml
+work/runs/run_0002/label_comparison/label_version_comparison.csv
+```
+
+当前统计：
+
+```text
+v1 score_rank:              pos=17053 neg=42631 ignore=25579 corr_size=0.057
+v2 stratified_score:        pos=4177  neg=15728 ignore=65358 corr_size=0.240
+v3 lf_vote:                 pos=3179  neg=2974  ignore=79110 corr_size=0.128
+v4 coordination_network:    pos=5848  neg=10974 ignore=68441 corr_size=0.203
+v5 ensemble_consensus:      pos=1392  neg=3911  ignore=79960 corr_size=0.071
+```
+
+实验使用策略：
+
+```text
+v2 = 主实验标签
+v5 = 严格标签鲁棒性
+v3/v4 = 后续补充
+```
+
+## 当前正式 Pack
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
+```
+
+v2 pack 规模：
+
+```text
+train = 13940
+valid = 3032
+test = 2933
+total_samples = 19905
+```
+
+v5 pack 规模：
+
+```text
+train = 3702
+valid = 843
+test = 758
+total_samples = 5303
+```
+
+pack smoke test 已确认训练端字段：
+
+```text
+window_x      = (B, 6, 24)
+node_x        = (B, 6, N, 47)
+node_text_x   = (B, 6, N, 64)
+window_text_x = (B, 6, 64)
+```
+
+## 当前可用训练配置
+
+主模型：
+
+```text
+configs/train/dragen_full_label_v2_roberta_text.yaml
+configs/train/dragen_full_label_v3_roberta_text.yaml
+configs/train/dragen_full_label_v4_roberta_text.yaml
+configs/train/dragen_full_label_v5_roberta_text.yaml
+```
+
+消融：
+
+```text
 configs/train/ablation_no_adaptive_sampling.yaml
 configs/train/ablation_no_gate.yaml
+configs/train/ablation_no_global_prior.yaml
+configs/train/ablation_no_memory.yaml
+configs/train/ablation_no_multiscale.yaml
+configs/train/ablation_no_role.yaml
+configs/train/ablation_no_tree.yaml
 configs/train/ablation_no_uncertainty.yaml
 ```
 
-Result table config:
+注意：现有消融 YAML 历史上默认指向 v4 pack。若论文主消融使用 v2，需要用 CLI 覆盖 `--pack-dir` 和 `--out-dir`。
+
+## 当前限制
+
+以下 baseline 入口当前仍是占位实现，不能产出正式 baseline 结果：
 
 ```text
-configs/train/result_tables_run0002.yaml
+scripts/14_train_cac_stat.py
+scripts/15_train_gnn_baselines.py
+src/dragen/baselines/cac_stat.py
+src/dragen/baselines/campaign_gnn.py
+src/dragen/baselines/temporal_gnn.py
 ```
 
-## Next Work
-
-Do not expand preprocessing before main model results are complete. The next tasks are:
+因此服务器当前优先任务是：
 
 ```text
-1. CAC-Stat baseline.
-2. Campaign-GNN baseline.
-3. Temporal-GNN baseline.
-4. DRAGEN-Full formal run.
-5. Ablations: w/o Tree, w/o MultiScale, w/o Role, w/o Memory, w/o Global Prior, w/o Adaptive Sampling, w/o Gate, w/o Uncertainty.
-6. Export main_results.csv, risk_retrieval_results.csv, and ablation_results.csv under work/artifacts/reports/.
+1. v2 DRAGEN-Full seed0 smoke/full run
+2. v2 DRAGEN-Full seed1/seed2
+3. v2 模块消融
+4. v5 严格标签鲁棒性
+5. 回传 reports/ 和 predictions/
 ```
 
-## Evaluation Metric Update
+## 服务器训练最小命令
 
-Evaluation is now split into two categories.
-
-Fair event-level metrics are used for main experiments, risk-retrieval tables, and ablations. They are computed only from:
-
-```text
-predictions/event_predictions.csv
-```
-
-Required fields:
-
-```text
-cascade_idx
-split
-y_true
-y_prob
-y_pred
-```
-
-Fair metrics:
-
-```text
-accuracy
-balanced_accuracy
-precision
-recall
-specificity
-f1
-macro_f1
-auc
-ap
-mcc
-brier
-ece
-precision_at_100
-precision_at_500
-recall_at_500
-precision_at_1pct
-recall_at_1pct
-precision_at_5pct
-recall_at_5pct
-```
-
-DRAGEN-specific interpretability metrics are separate and must not be compared against baselines that do not export node-window explanations. They read:
-
-```text
-predictions/node_window_predictions.csv
-predictions/role_distribution.csv
-predictions/gate_weights.csv
-predictions/uncertainty.csv
-predictions/event_attention.csv
-```
-
-Post-training analysis entry:
+先跑 smoke：
 
 ```bash
-python scripts/19_analyze_predictions.py \
-  --artifact-dir work/artifacts/dragen_full_run0002_seed0
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --epochs 1 \
+  --max-train-samples 256 \
+  --max-valid-samples 128 \
+  --max-test-samples 128 \
+  --out-dir work/artifacts/_smoke_dragen_v2_roberta_text
 ```
 
-Outputs:
-
-```text
-reports/event_metrics_extended.json
-reports/risk_retrieval_metrics.json
-reports/temporal_stability_metrics.json
-reports/interpretability_metrics.json
-reports/diagnostic_summary.csv
-```
-
-Result-table entry:
+v2 正式 seed0：
 
 ```bash
-python scripts/18_export_result_tables.py \
-  --config configs/train/result_tables_run0002.yaml
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v2_roberta_text.yaml
 ```
 
+v5 鲁棒性：
 
-## 2026-07-02 Methodological Caution
+```bash
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v5_roberta_text.yaml
+```
 
-Current reported Label-v1 results should be interpreted as pipeline/debug results. Label-v1 uses global weak-score quantiles and may be highly correlated with model input statistics. Very high AUC under Label-v1 is not sufficient evidence that the model has learned organized manipulation.
+## 评估提醒
 
-Formal thesis runs should be repeated with Label-v2 stratified multi-rule weak labels, documented in `docs/label_design.md`, and result tables should explicitly name the label version.
+当前训练导出的分类指标默认使用：
+
+```text
+threshold = 0.5
+```
+
+论文正式报告建议后处理为：
+
+```text
+在 valid_event_predictions.csv 上选择 F1 最优 threshold，
+再固定该 threshold 到 test_event_predictions.csv。
+```
+
+这一点后续应补进评估/导表脚本。
