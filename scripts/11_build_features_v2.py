@@ -8,6 +8,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+import _bootstrap  # noqa: F401
+
 from dragen.features.build_features import (
     TextStatsByWindow,
     count_bad_numbers,
