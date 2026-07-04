@@ -1,18 +1,18 @@
 # DRAGEN
 
-DRAGEN is the experiment repository for organized cascade prediction. The current active line is:
+DRAGEN 是组织化级联传播预测实验仓库。当前主线是：
 
 ```text
 Feature-v2 + RoBERTa Text + Adaptive Global Sampling + Global Follow candidates
 ```
 
-Current branch:
+当前代码分支：
 
 ```text
 experiment/run-0002-roberta-only
 ```
 
-Large experiment artifacts are intentionally ignored by Git:
+大文件和实验产物不进 Git：
 
 ```text
 work/
@@ -21,11 +21,11 @@ graph/follow_edges.tsv
 *.zip
 ```
 
-Keep code, configs, and documentation in Git. Transfer packs and artifacts with `rsync`, `scp`, or another file transfer tool.
+代码、配置和文档走 Git；数据包、训练结果、checkpoint 用 `scp` / `rsync` 单独传输。
 
-## Current Status
+## 1. 当前状态
 
-The workstation has already built the formal RoBERTa-text packs for `run_0002`:
+本机已经完成 `run_0002` 的正式 RoBERTa-text pack：
 
 ```text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
@@ -34,9 +34,15 @@ packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
 ```
 
-Use `v2` as the main label version. Use `v5` as the strict-label robustness check. `v3` and `v4` are available for later comparison, but they are not the first training priority.
+实验策略：
 
-Pack input dimensions verified locally:
+```text
+v2：主实验标签版本
+v5：严格标签鲁棒性验证
+v3/v4：先保留，后面有时间再补
+```
+
+已经验证过的输入维度：
 
 ```text
 window_x      = (B, 6, 24)
@@ -45,21 +51,21 @@ node_text_x   = (B, 6, N, 64)
 window_text_x = (B, 6, 64)
 ```
 
-Text semantic notes:
+RoBERTa 文本产物：
 
 ```text
-RoBERTa root embedding    = (85263, 768)
-RoBERTa retweet embedding = (193331, 768)
-Reduced dimension         = 64
-node_text_features        = (567718, 64)
-window_text_features      = (511578, 64)
+root embedding 原始维度    = (85263, 768)
+retweet embedding 原始维度 = (193331, 768)
+降维后维度                 = 64
+node_text_features         = (567718, 64)
+window_text_features       = (511578, 64)
 ```
 
-Many retweet rows in `text_window_table.csv` have no raw text. Those nodes receive zero `node_text_x`; every window still has root text semantics in `window_text_x`.
+注意：很多 retweet 行没有原始文本，所以这些节点的 `node_text_x` 是零向量；但每个窗口都有 root 文本语义，所以 `window_text_x` 不为空。
 
-## Server Setup
+## 2. 服务器部署
 
-Clone and checkout the active branch:
+服务器拉代码：
 
 ```bash
 git clone git@github.com:codezzp/DRAGEN.git
@@ -67,7 +73,7 @@ cd DRAGEN
 git checkout experiment/run-0002-roberta-only
 ```
 
-If the repository already exists:
+如果服务器已有仓库：
 
 ```bash
 cd DRAGEN
@@ -76,31 +82,34 @@ git checkout experiment/run-0002-roberta-only
 git pull
 ```
 
-Recommended Python environment:
+推荐环境：
 
 ```text
 Python >= 3.10
-PyTorch with CUDA
+PyTorch CUDA 版
 numpy pandas scipy scikit-learn tqdm pyyaml matplotlib networkx
 transformers tokenizers safetensors huggingface_hub
 ```
 
-Install the non-PyTorch dependencies:
+安装依赖：
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+python -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+python -m pip install --upgrade pip setuptools wheel
+
 python -m pip install numpy pandas scipy scikit-learn tqdm pyyaml matplotlib networkx
 python -m pip install transformers accelerate datasets sentencepiece tokenizers safetensors huggingface_hub
 python -m pip install tensorboard
 ```
 
-Install PyTorch according to the server CUDA version. Example for CUDA 12.8 wheels:
+PyTorch 根据服务器 CUDA 版本安装。CUDA 12.8 示例：
 
 ```bash
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
-Verify CUDA:
+验证 GPU：
 
 ```bash
 python - <<'PY'
@@ -113,16 +122,16 @@ if torch.cuda.is_available():
 PY
 ```
 
-## Data To Transfer To Server
+## 3. 需要传到服务器的数据
 
-For training only, transfer these two directories first:
+第一批只传 v2 和 v5：
 
 ```text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
 ```
 
-Each pack must contain:
+每个 pack 目录必须包含：
 
 ```text
 train.pt
@@ -132,31 +141,21 @@ meta.json
 pack_diagnostics.json
 ```
 
-Optional, for later label comparison:
+可选传输，后续补实验时再用：
 
 ```text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
 ```
 
-Optional audit files:
-
-```text
-work/runs/run_0002/label_comparison/label_version_comparison.csv
-work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64/text_semantic_feature_meta.json
-work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree/feature_diagnostics.json
-```
-
-You do not need to transfer `graph/follow_edges.tsv` for normal training, because the global candidate edges are already packed into the `.pt` files.
-
-Example transfer from Windows PowerShell:
+PowerShell 传输示例：
 
 ```powershell
 scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text user@server:/path/to/DRAGEN/packs/
 scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text user@server:/path/to/DRAGEN/packs/
 ```
 
-Example transfer with `rsync`:
+Linux/macOS 或服务器间传输示例：
 
 ```bash
 rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/ \
@@ -166,9 +165,20 @@ rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_gl
   user@server:/path/to/DRAGEN/packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text/
 ```
 
-## Stage 0: Smoke Test
+正常训练不需要传：
 
-First verify that the server can read the v2 pack and collate text fields:
+```text
+graph/follow_edges.tsv
+work/runs/run_0002/windows/
+work/runs/run_0002/features_v2/
+work/runs/run_0002/text_embeddings/
+```
+
+因为训练只读 pack，global follow candidate 和 RoBERTa text 已经写进 `.pt`。
+
+## 4. 第一件事：服务器 smoke test
+
+先检查 v2 pack 能不能读取：
 
 ```bash
 python - <<'PY'
@@ -186,7 +196,7 @@ print('global edges', [tuple(x.shape) for x in b['global_candidate_edge_index']]
 PY
 ```
 
-Then run a one-epoch small DRAGEN smoke test:
+然后跑一个 1 epoch 小样本训练：
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -198,26 +208,29 @@ python scripts/16_train_dragen_full.py \
   --out-dir work/artifacts/_smoke_dragen_v2_roberta_text
 ```
 
-Check outputs:
+检查输出：
 
 ```bash
 ls work/artifacts/_smoke_dragen_v2_roberta_text/reports
 ls work/artifacts/_smoke_dragen_v2_roberta_text/predictions
+cat work/artifacts/_smoke_dragen_v2_roberta_text/reports/metrics.json
 ```
 
-## Main Training Plan
+如果 smoke test 报错，先不要跑正式实验。
 
-Run order:
+## 5. 正式实验顺序
+
+推荐顺序：
 
 ```text
-1. Label-v2 DRAGEN-Full seed 0
-2. Label-v2 DRAGEN-Full seed 1 and seed 2 if time allows
-3. Label-v2 core ablations
-4. Label-v5 strict-label robustness run
-5. Export tables and analyze predictions
+1. v2 DRAGEN-Full seed 0
+2. v2 DRAGEN-Full seed 1 / seed 2，有时间再补
+3. v2 核心消融
+4. v5 严格标签鲁棒性
+5. 导出结果表和回传 predictions/reports
 ```
 
-Current baseline entry points are placeholders in this branch:
+当前分支里的 baseline 入口还只是占位实现：
 
 ```text
 src/dragen/baselines/cac_stat.py
@@ -225,18 +238,25 @@ src/dragen/baselines/campaign_gnn.py
 src/dragen/baselines/temporal_gnn.py
 ```
 
-Do not expect `scripts/14_train_cac_stat.py` or `scripts/15_train_gnn_baselines.py` to produce formal baseline results until those implementations are added. For now, the server-ready path is DRAGEN-Full and DRAGEN ablations.
+因此现在不要直接跑：
 
-## Label-v2 Main DRAGEN-Full
+```bash
+python scripts/14_train_cac_stat.py
+python scripts/15_train_gnn_baselines.py
+```
 
-Seed 0:
+它们不会产生正式 baseline 结果。当前服务器可直接执行的是 DRAGEN-Full 和 DRAGEN 模块消融。
+
+## 6. v2 主实验
+
+seed 0：
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text.yaml
 ```
 
-Seed 1:
+seed 1：
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -245,7 +265,7 @@ python scripts/16_train_dragen_full.py \
   --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed1
 ```
 
-Seed 2:
+seed 2：
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -254,7 +274,7 @@ python scripts/16_train_dragen_full.py \
   --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed2
 ```
 
-Resume from `last.pt`:
+断点续训：
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -262,14 +282,14 @@ python scripts/16_train_dragen_full.py \
   --resume work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
 ```
 
-## Label-v5 Strict Robustness
+## 7. v5 严格标签鲁棒性
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v5_roberta_text.yaml
 ```
 
-Seed override example:
+如果要补 seed：
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -278,17 +298,17 @@ python scripts/16_train_dragen_full.py \
   --out-dir work/artifacts/dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed1
 ```
 
-## Ablation Runs
+## 8. v2 消融实验
 
-The existing ablation YAML files currently point to Label-v4 packs. If the thesis main ablation must use Label-v2, override `--pack-dir` and `--out-dir` from the CLI.
+现有消融 YAML 默认指向 v4 pack。如果论文主消融要用 v2，请用 CLI 覆盖 `--pack-dir` 和 `--out-dir`。
 
-Common v2 pack:
+v2 主 pack：
 
 ```text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
 ```
 
-Core module ablations on Label-v2:
+核心消融：
 
 ```bash
 python scripts/17_run_ablation.py \
@@ -322,44 +342,101 @@ python scripts/17_run_ablation.py \
   --out-dir work/artifacts/label_v2_ablation_no_adaptive_sampling
 ```
 
-`w/o RoBERTa Text`, `w/o MultiScale Context`, and `w/o HybridTree` need compatible non-text or alternate-structure packs. Do not run those ablations with the current RoBERTa-only pack unless the code/config is updated for that input.
-
-## Metrics And Thresholds
-
-Current metric code still computes classification metrics at `threshold = 0.5`. For formal thesis reporting, update or post-process predictions with this policy:
+暂时不要直接跑以下消融，除非已经准备好对应 pack 或代码：
 
 ```text
-Select the threshold that maximizes F1 on the validation set, then apply that fixed threshold to the test set.
+w/o RoBERTa Text
+w/o MultiScale Context
+w/o HybridTree
 ```
 
-Prediction files are written under:
+原因：当前分支是 RoBERTa-only，模型要求 pack 里有 `node_text_x`；`w/o MultiScale` 和 `w/o HybridTree` 也需要对应结构的 feature_v2 + roberta_text pack。
+
+## 9. 结果检查
+
+每个 run 结束后看：
+
+```bash
+cat work/artifacts/<run>/reports/metrics.json
+head work/artifacts/<run>/predictions/event_predictions.csv
+ls work/artifacts/<run>/checkpoints
+```
+
+重点文件：
 
 ```text
-work/artifacts/<run>/predictions/
+reports/metrics.json
+reports/loss_breakdown.json
+reports/epoch_metrics.csv
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+predictions/event_predictions.csv
+predictions/valid_event_predictions.csv
+predictions/test_event_predictions.csv
+predictions/node_window_predictions.csv
+predictions/role_distribution.csv
+predictions/gate_weights.csv
+predictions/uncertainty.csv
+predictions/event_attention.csv
+predictions/sampled_global_neighbors.csv
+checkpoints/best.pt
+checkpoints/last.pt
 ```
 
-Important files:
+如果 checkpoint 太大，至少回传：
 
 ```text
-valid_event_predictions.csv
-test_event_predictions.csv
-event_predictions.csv
-node_window_predictions.csv
-role_distribution.csv
-gate_weights.csv
-uncertainty.csv
-event_attention.csv
-sampled_global_neighbors.csv
+reports/
+predictions/
 ```
 
-Run post-training analysis:
+## 10. 阈值和正式指标
+
+当前代码默认分类阈值仍是：
+
+```text
+threshold = 0.5
+```
+
+论文正式结果建议后处理为：
+
+```text
+在 valid_event_predictions.csv 上选择 F1 最优 threshold，
+然后把这个 threshold 固定应用到 test_event_predictions.csv。
+```
+
+这样可以避免出现：
+
+```text
+AUC 高，但 Precision / Recall / F1 = 0
+```
+
+正式表至少看：
+
+```text
+AUC
+AUPRC / AP
+Precision
+Recall
+F1
+MCC
+Accuracy
+Best threshold
+Precision@K
+Recall@K
+```
+
+## 11. 导出结果表
+
+训练完成后运行预测分析：
 
 ```bash
 python scripts/19_analyze_predictions.py \
   --artifact-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0
 ```
 
-Export result tables after runs finish:
+导出表格：
 
 ```bash
 python scripts/18_export_result_tables.py \
@@ -378,7 +455,7 @@ python scripts/18_export_result_tables.py \
   --out-dir work/artifacts/reports
 ```
 
-Expected final tables:
+输出：
 
 ```text
 work/artifacts/reports/main_results.csv
@@ -386,31 +463,9 @@ work/artifacts/reports/risk_retrieval_results.csv
 work/artifacts/reports/ablation_results.csv
 ```
 
-## Output Files To Copy Back
+## 12. 如果必须在服务器重建 pack
 
-For each server run, copy back:
-
-```text
-work/artifacts/<run>/reports/
-work/artifacts/<run>/predictions/
-work/artifacts/<run>/checkpoints/best.pt
-```
-
-If checkpoints are too large, copy at least:
-
-```text
-reports/metrics.json
-reports/loss_breakdown.json
-reports/epoch_metrics.csv
-reports/resolved_config.yaml
-reports/command.txt
-reports/git_info.json
-predictions/*.csv
-```
-
-## Rebuilding Packs On Server
-
-Normal server training should not rebuild packs. If rebuilding is necessary, transfer these inputs first:
+正常不建议服务器重建 pack。确实要重建时，需要先传：
 
 ```text
 work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree/
@@ -421,7 +476,7 @@ work/runs/run_0002/labels_v2_stratified_score/
 work/runs/run_0002/labels_v5_ensemble_consensus/
 ```
 
-Example rebuild for Label-v2:
+重建 v2 pack：
 
 ```bash
 python scripts/13_build_packs.py \
@@ -434,14 +489,14 @@ python scripts/13_build_packs.py \
   --out-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
 ```
 
-Do not rebuild `graph/follow_edges.tsv` on the server unless absolutely necessary; that scan is large and is already reflected in the packed global candidate fields.
+不要在服务器重扫 `graph/follow_edges.tsv`，除非必须重建 global candidate table。
 
-## More Docs
+## 13. 相关文档
 
 ```text
-docs/training_commands.md       RoBERTa preprocessing and pack build commands
-docs/results_summary.md         Current experiment status
-docs/label_design.md            Weak label versions
-docs/configuration.md           YAML config rules
-docs/server_experiment_guide.md Historical server migration notes
+docs/training_commands.md       RoBERTa 预处理和 pack 构建命令
+docs/results_summary.md         当前实验进度
+docs/label_design.md            弱标签版本设计
+docs/configuration.md           YAML 配置规则
+docs/server_experiment_guide.md 历史服务器迁移记录
 ```
