@@ -258,3 +258,263 @@ work/artifacts/<run>/checkpoints/last.pt
 ```
 
 后续需要把该逻辑补进评估/导表脚本。
+
+## 10. Key-user pool 分支后续训练指导
+
+当前推荐优先使用 key-user pool 分支继续训练，不再优先跑旧的 edge-list Full 分支。
+
+代码分支：
+
+```bash
+git fetch codezzp
+git checkout feature/key-user-pool-global-prior
+git pull
+```
+
+该分支保留旧 global 分支，默认 `edge_list` 不变；新增快速分支：
+
+```text
+global_sampling_mode: key_user_pool
+```
+
+### 10.1 服务器需要的 pack
+
+key-user 训练需要这个 pack：
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser
+```
+
+如果本地已经构建好，直接传到服务器：
+
+```powershell
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser user@server:/path/to/DRAGEN/packs/
+```
+
+或用 rsync：
+
+```bash
+rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser/ \
+  user@server:/path/to/DRAGEN/packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser/
+```
+
+如果服务器上只有旧 v2 RoBERTa-text pack，也可以在服务器上构建 key-user pack：
+
+```bash
+python scripts/13b_build_key_user_pool_packs.py \
+  --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser \
+  --max-hops 4 \
+  --key-users-per-window 32 \
+  --seed-budget 16 \
+  --rho 0.6
+```
+
+构建完成后，key-user pack 每个 split 仍然必须包含：
+
+```text
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
+```
+
+### 10.2 pack shape 检查
+
+先检查新字段是否能被读取和 collate：
+
+```bash
+python - <<'PY'
+import sys
+sys.path.insert(0, 'src')
+from dragen.data.pack_reader import PickleStreamDataset, collate_fn
+
+p = 'packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser/train.pt'
+ds = PickleStreamDataset(p, max_samples=2, split='train-smoke')
+b = collate_fn([ds[0], ds[1]])
+
+for k in [
+    'window_x',
+    'node_x',
+    'node_text_x',
+    'window_text_x',
+    'key_user_idx',
+    'key_user_weight',
+    'key_user_hop',
+    'key_user_mask',
+]:
+    print(k, tuple(b[k].shape), b[k].dtype)
+PY
+```
+
+期望看到：
+
+```text
+key_user_idx     (2, 6, 32)
+key_user_weight  (2, 6, 32)
+key_user_hop     (2, 6, 32)
+key_user_mask    (2, 6, 32)
+```
+
+### 10.3 端到端 smoke
+
+先跑小样本端到端训练，确认 train、valid、test export 都能完成：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --epochs 1 \
+  --batch-size 8 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --max-train-samples 64 \
+  --max-valid-samples 32 \
+  --max-test-samples 32 \
+  --out-dir work/artifacts/_smoke_v2_keyuser_pool_e2e
+```
+
+检查：
+
+```bash
+cat work/artifacts/_smoke_v2_keyuser_pool_e2e/reports/metrics.json
+ls work/artifacts/_smoke_v2_keyuser_pool_e2e/predictions
+```
+
+### 10.4 速度测试
+
+服务器正式跑前建议先复测 512/256/256：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --epochs 1 \
+  --batch-size 8 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --max-train-samples 512 \
+  --max-valid-samples 256 \
+  --max-test-samples 256 \
+  --out-dir work/artifacts/_speed_v2_keyuser_pool_bs8_bucket
+```
+
+本地记录的训练 epoch 速度：
+
+```text
+old edge-list Full = 599.02s
+no_global          = 36.05s
+no_adaptive        = 516.22s
+key_user_pool      = 42.07s
+```
+
+注意：`epoch_time_sec` 只统计 train + valid，不包含最终 valid/test prediction export。512/256/256 的本地 run 在 final export 阶段被工具超时打断，但训练 epoch 已完成并写出 `epoch_metrics.csv`。服务器如果时间充足，可以让它跑完整导出。
+
+查看速度结果：
+
+```bash
+cat work/artifacts/_speed_v2_keyuser_pool_bs8_bucket/reports/epoch_metrics.csv
+```
+
+### 10.5 正式 v2 key-user 训练
+
+如果 smoke 和 speed 都正常，正式跑 v2 seed0：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard
+```
+
+默认输出目录：
+
+```text
+work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0
+```
+
+如果要补 seed1：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed1
+```
+
+如果要补 seed2：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --seed 2 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed2
+```
+
+### 10.6 中断恢复
+
+如果训练中断，用 `last.pt` 恢复：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --resume work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard
+```
+
+### 10.7 结果回传
+
+每个正式 run 至少回传：
+
+```text
+work/artifacts/<run>/reports/
+work/artifacts/<run>/predictions/
+```
+
+如果 checkpoint 不太大，也回传：
+
+```text
+work/artifacts/<run>/checkpoints/best.pt
+work/artifacts/<run>/checkpoints/last.pt
+```
+
+推荐回传命令：
+
+```bash
+rsync -av --progress user@server:/path/to/DRAGEN/work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0/reports/ \
+  work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0/reports/
+
+rsync -av --progress user@server:/path/to/DRAGEN/work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0/predictions/ \
+  work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0/predictions/
+```
+
+### 10.8 当前推荐顺序
+
+```text
+1. 拉取 feature/key-user-pool-global-prior 分支
+2. 确认或构建 v2 key-user pack
+3. 运行 pack shape 检查
+4. 运行 64/32/32 smoke
+5. 运行 512/256/256 speed test
+6. 正式运行 v2 key-user seed0
+7. 回传 reports/ 和 predictions/
+8. 再决定是否补 seed1/seed2 或 v5 key-user
+```
+
+当前不建议优先跑旧 `dragen_full_label_v2_roberta_text.yaml` 的 edge-list Full，因为已确认 global edge-list 分支是主要速度瓶颈。
