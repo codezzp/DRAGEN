@@ -3,13 +3,13 @@
 DRAGEN 是组织化级联传播预测实验仓库。当前主线是：
 
 ```text
-Feature-v2 + RoBERTa Text + Adaptive Global Sampling + Global Follow candidates
+Feature-v2 + RoBERTa Text + Key-user Pool Global Prior
 ```
 
 当前代码分支：
 
 ```text
-experiment/run-0002-roberta-only
+feature/key-user-pool-global-prior
 ```
 
 大文件和实验产物不进 Git：
@@ -70,7 +70,7 @@ window_text_features       = (511578, 64)
 ```bash
 git clone git@github.com:codezzp/DRAGEN.git
 cd DRAGEN
-git checkout experiment/run-0002-roberta-only
+git checkout feature/key-user-pool-global-prior
 ```
 
 如果服务器已有仓库：
@@ -78,7 +78,7 @@ git checkout experiment/run-0002-roberta-only
 ```bash
 cd DRAGEN
 git fetch codezzp
-git checkout experiment/run-0002-roberta-only
+git checkout feature/key-user-pool-global-prior
 git pull
 ```
 
@@ -200,20 +200,20 @@ PY
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --epochs 1 \
   --max-train-samples 256 \
   --max-valid-samples 128 \
   --max-test-samples 128 \
-  --out-dir work/artifacts/_smoke_dragen_v2_roberta_text
+  --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
 ```
 
 检查输出：
 
 ```bash
-ls work/artifacts/_smoke_dragen_v2_roberta_text/reports
-ls work/artifacts/_smoke_dragen_v2_roberta_text/predictions
-cat work/artifacts/_smoke_dragen_v2_roberta_text/reports/metrics.json
+ls work/artifacts/_smoke_v2_key_user_pool_e2e/reports
+ls work/artifacts/_smoke_v2_key_user_pool_e2e/predictions
+cat work/artifacts/_smoke_v2_key_user_pool_e2e/reports/metrics.json
 ```
 
 如果 smoke test 报错，先不要跑正式实验。
@@ -253,33 +253,33 @@ seed 0：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
 ```
 
 seed 1：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --seed 1 \
-  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed1
+  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1
 ```
 
 seed 2：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --seed 2 \
-  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed2
+  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2
 ```
 
 断点续训：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
-  --resume work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --resume work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
 ```
 
 ## 7. v5 严格标签鲁棒性
@@ -350,7 +350,7 @@ w/o MultiScale Context
 w/o HybridTree
 ```
 
-原因：当前分支是 RoBERTa-only，模型要求 pack 里有 `node_text_x`；`w/o MultiScale` 和 `w/o HybridTree` 也需要对应结构的 feature_v2 + roberta_text pack。
+原因：当前 key-user pool 分支仍使用 RoBERTa text pack，模型要求 pack 里有 `node_text_x`；`w/o MultiScale` 和 `w/o HybridTree` 也需要对应结构的 feature_v2 + roberta_text pack。
 
 ## 9. 结果检查
 
@@ -433,7 +433,7 @@ Recall@K
 
 ```bash
 python scripts/19_analyze_predictions.py \
-  --artifact-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0
+  --artifact-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0
 ```
 
 导出表格：
@@ -441,17 +441,17 @@ python scripts/19_analyze_predictions.py \
 ```bash
 python scripts/18_export_result_tables.py \
   --run-dirs \
-    work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+    work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0 \
     work/artifacts/dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed0 \
   --ablation-run-dirs \
-    work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+    work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0 \
     work/artifacts/label_v2_ablation_no_global_prior \
     work/artifacts/label_v2_ablation_no_role \
     work/artifacts/label_v2_ablation_no_memory \
     work/artifacts/label_v2_ablation_no_gate \
     work/artifacts/label_v2_ablation_no_uncertainty \
     work/artifacts/label_v2_ablation_no_adaptive_sampling \
-  --full-run-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+  --full-run-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0 \
   --out-dir work/artifacts/reports
 ```
 
@@ -530,7 +530,7 @@ Build a key-user pack from an existing RoBERTa-text pack:
 ```bash
 python scripts/13b_build_key_user_pool_packs.py \
   --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser \
+  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
   --max-hops 4 \
   --key-users-per-window 32 \
   --seed-budget 16 \
@@ -553,7 +553,7 @@ Default values are `T=6`, `R=32`, `max_hops=4`.
 Use:
 
 ```text
-configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml
+configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
 ```
 
 Main fields:
@@ -569,7 +569,7 @@ model:
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --epochs 1 \
   --batch-size 8 \
   --bucket-by-nodes \
@@ -579,7 +579,7 @@ python scripts/16_train_dragen_full.py \
   --max-train-samples 64 \
   --max-valid-samples 32 \
   --max-test-samples 32 \
-  --out-dir work/artifacts/_smoke_v2_keyuser_pool_e2e
+  --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
 ```
 
 Verified locally: the 64/32/32 end-to-end smoke completed, including valid/test export.
@@ -618,14 +618,14 @@ Recommended server sequence:
 Key-user pack required by the formal v2 run:
 
 ```text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
 ```
 
 Formal v2 key-user command:
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --no-plot-every-epoch \
@@ -635,7 +635,7 @@ python scripts/16_train_dragen_full.py \
 Default output:
 
 ```text
-work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0
+work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0
 ```
 
 The old edge-list Full config is no longer the recommended first formal run because the speed diagnosis showed the global edge-list branch is the main bottleneck.

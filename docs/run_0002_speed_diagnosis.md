@@ -7,7 +7,7 @@ Date: 2026-07-05
 The current experiment line is:
 
 ```text
-Feature-v2 + RoBERTa Text + Adaptive Global Sampling + Global Follow candidates
+Feature-v2 + RoBERTa Text + Key-user Pool Global Prior
 ```
 
 The local preprocessing stage has completed for `run_0002`. The formal RoBERTa-text packs have been built under `packs/`:
@@ -36,7 +36,7 @@ text semantic dim = 64
 
 ## Training Pipeline
 
-The training entry is:
+The old edge-list baseline training entry used for diagnosis was:
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -55,7 +55,7 @@ pack_diagnostics.json
 
 RoBERTa is not executed during training. RoBERTa encoding, dimensionality reduction, and text-window aggregation are all offline preprocessing steps. During training, the model only reads `node_text_x` and `window_text_x` from the pack.
 
-The default formal config uses:
+The old edge-list diagnostic config used:
 
 ```text
 epochs = 10
@@ -125,7 +125,7 @@ plot_every_epoch = false
 tensorboard = false
 ```
 
-Commands used:
+Diagnostic commands used for the old edge-list/global ablation comparison:
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -257,7 +257,7 @@ New files and config:
 ```text
 scripts/13b_build_key_user_pool_packs.py
 src/dragen/models/key_user_global_prior.py
-configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml
+configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
 ```
 
 The key-user pack adds fixed window-level fields:

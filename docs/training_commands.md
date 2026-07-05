@@ -1,15 +1,15 @@
-# DRAGEN RoBERTa-only 训练命令
+# DRAGEN key-user pool 训练命令
 
 本文档是当前分支的命令索引。当前主线是：
 
 ```text
-Feature-v2 + RoBERTa Text + Adaptive Global Sampling + Global Follow candidates
+Feature-v2 + RoBERTa Text + Key-user Pool Global Prior
 ```
 
 当前分支：
 
 ```text
-experiment/run-0002-roberta-only
+feature/key-user-pool-global-prior
 ```
 
 当前正式训练优先使用：
@@ -23,6 +23,14 @@ Label-v5：严格标签鲁棒性
 
 ## 1. 已完成的正式 pack
 
+正式 v2 key-user 训练优先使用：
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
+```
+
+旧 RoBERTa-text source pack 仍保留，用于重新构建 key-user pack：
+
 ```text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
@@ -30,7 +38,7 @@ packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
 ```
 
-训练阶段只需要读取这些 pack，不会重新调用 RoBERTa。
+正式 key-user 训练只读取 `_key_user_pool` pack，不会重新调用 RoBERTa。
 
 ## 2. 服务器优先 smoke test
 
@@ -39,27 +47,23 @@ python - <<'PY'
 import sys
 sys.path.insert(0, 'src')
 from dragen.data.pack_reader import PickleStreamDataset, collate_fn
-p = 'packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/train.pt'
+p = 'packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/train.pt'
 ds = PickleStreamDataset(p, max_samples=2, split='train-smoke')
 b = collate_fn([ds[0], ds[1]])
-print('window_x', tuple(b['window_x'].shape))
-print('node_x', tuple(b['node_x'].shape))
-print('node_text_x', tuple(b['node_text_x'].shape))
-print('window_text_x', tuple(b['window_text_x'].shape))
-print('global edges', [tuple(x.shape) for x in b['global_candidate_edge_index']])
+for k in ['window_x','node_x','node_text_x','window_text_x','key_user_idx','key_user_weight','key_user_hop','key_user_mask']:
+    print(k, tuple(b[k].shape), b[k].dtype)
 PY
 ```
-
 小样本训练：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --epochs 1 \
   --max-train-samples 256 \
   --max-valid-samples 128 \
   --max-test-samples 128 \
-  --out-dir work/artifacts/_smoke_dragen_v2_roberta_text
+  --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
 ```
 
 ## 3. v2 主实验
@@ -68,33 +72,33 @@ seed 0：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
 ```
 
 seed 1：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --seed 1 \
-  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed1
+  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1
 ```
 
 seed 2：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --seed 2 \
-  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed2
+  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2
 ```
 
 断点续训：
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
-  --resume work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --resume work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
 ```
 
 ## 4. v5 严格标签鲁棒性
@@ -156,7 +160,7 @@ w/o MultiScale Context
 w/o HybridTree
 ```
 
-原因：当前分支是 RoBERTa-only，模型要求 pack 有 `node_text_x`；MultiScale/HybridTree 类消融还需要额外构建匹配的 feature_v2 + roberta_text pack。
+原因：当前 key-user pool 分支仍使用 RoBERTa text pack，模型要求 pack 有 `node_text_x`；MultiScale/HybridTree 类消融还需要额外构建匹配的 feature_v2 + roberta_text pack。
 
 ## 6. 当前 baseline 状态
 
@@ -256,7 +260,7 @@ Build the Label-v2 key-user pack:
 ```bash
 python scripts/13b_build_key_user_pool_packs.py \
   --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser \
+  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
   --max-hops 4 \
   --key-users-per-window 32 \
   --seed-budget 16 \
@@ -266,7 +270,7 @@ python scripts/13b_build_key_user_pool_packs.py \
 Check pack shapes:
 
 ```bash
-python -c "import sys; sys.path.insert(0,'src'); from dragen.data.pack_reader import PickleStreamDataset, collate_fn; p='packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser/train.pt'; ds=PickleStreamDataset(p,max_samples=2,split='train-smoke'); b=collate_fn([ds[0],ds[1]]); [print(k, tuple(b[k].shape), b[k].dtype) for k in ['window_x','node_x','node_text_x','window_text_x','key_user_idx','key_user_weight','key_user_hop','key_user_mask']]"
+python -c "import sys; sys.path.insert(0,'src'); from dragen.data.pack_reader import PickleStreamDataset, collate_fn; p='packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/train.pt'; ds=PickleStreamDataset(p,max_samples=2,split='train-smoke'); b=collate_fn([ds[0],ds[1]]); [print(k, tuple(b[k].shape), b[k].dtype) for k in ['window_x','node_x','node_text_x','window_text_x','key_user_idx','key_user_weight','key_user_hop','key_user_mask']]"
 ```
 
 Expected key-user fields:
@@ -282,7 +286,7 @@ Run a small end-to-end smoke:
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --epochs 1 \
   --batch-size 8 \
   --bucket-by-nodes \
@@ -292,14 +296,14 @@ python scripts/16_train_dragen_full.py \
   --max-train-samples 64 \
   --max-valid-samples 32 \
   --max-test-samples 32 \
-  --out-dir work/artifacts/_smoke_v2_keyuser_pool_e2e
+  --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
 ```
 
 Run a speed test:
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --epochs 1 \
   --batch-size 8 \
   --bucket-by-nodes \
@@ -309,7 +313,7 @@ python scripts/16_train_dragen_full.py \
   --max-train-samples 512 \
   --max-valid-samples 256 \
   --max-test-samples 256 \
-  --out-dir work/artifacts/_speed_v2_keyuser_pool_bs8_bucket
+  --out-dir work/artifacts/_speed_v2_key_user_pool_bs8_bucket
 ```
 
 Local speed result for the training epoch:

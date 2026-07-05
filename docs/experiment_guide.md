@@ -1,10 +1,22 @@
-﻿# RoBERTa-only 实验指南
+# Key-user Pool Experiment Guide
 
-本分支只做一条路线：`Feature-v2 + RoBERTaText + Adaptive Global Sampling`。旧 StatText、旧无后缀 pack 和兼容入口不放在这个分支里维护。
+This guide describes the current active branch:
 
-## 分支边界
+```text
+feature/key-user-pool-global-prior
+```
 
-保留：
+Current experiment line:
+
+```text
+Feature-v2 + RoBERTa Text + Key-user Pool Global Prior
+```
+
+This branch keeps the old edge-list global branch for compatibility, but the recommended formal v2 run uses the fixed window-level `key_user_pool` branch.
+
+## Branch Boundary
+
+Keep and maintain:
 
 ```text
 scripts/11_build_features_v2.py
@@ -12,42 +24,70 @@ scripts/10_encode_text_roberta.py
 scripts/10b_reduce_text_embeddings.py
 scripts/11b_build_text_semantic_features.py
 scripts/11c_build_non_text_evidence_v2.py
+scripts/13b_build_key_user_pool_packs.py
+configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
 configs/train/dragen_full_label_v*_roberta_text.yaml
-configs/train/dragen_full_label_v4_roberta_text_evidence_v2.yaml
+src/dragen/models/key_user_global_prior.py
 ```
 
-不保留：
+Legacy compatibility files may remain in the repository, but they are not the first formal server-training path for this branch.
+
+## Required Pack
+
+Formal v2 key-user training reads:
 
 ```text
-scripts/bert.py
-scripts/scripts_compat.py
-configs/train/*stat_text*.yaml
-configs/train/dragen_full_label_v2.yaml
-configs/train/dragen_full_label_v3.yaml
-configs/train/dragen_full_label_v4.yaml
-configs/train/dragen_full_label_v5.yaml
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
 ```
 
-## 实验顺序
+The pack must contain:
 
-1. 构建 `features_v2`。
-2. 构建 RoBERTa 文本嵌入和窗口语义特征。
-3. 为 Label-v2/v3/v4/v5 分别构建 `_feature_v2_..._roberta_text` pack。
-4. 每套 label 先跑 1 epoch，检查 AUC、AP、F1、MCC 和 loss 是否稳定。
-5. 以 Label-v4 为主线构建 `roberta_text_evidence_v2` pack，比较 Evidence-v2 的增益。
-6. 正式训练时每个实验目录必须包含 label、feature_v2、roberta_text、seed 信息。
-
-## Pack 检查
-
-正确 pack 的 `meta.json` 至少应包含：
-
-```json
-{
-  "text_semantic_dim": 64,
-  "sample_keys": ["node_text_x", "window_text_x"],
-  "node_feature_columns": [],
-  "window_feature_columns": []
-}
+```text
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
 ```
 
-`node_feature_columns` 和 `window_feature_columns` 会写入 Feature-v2 的完整列名。模型缺少 `node_text_x` 会直接报错，不会回退到旧文本路线。
+The key-user fields added to each sample are:
+
+```text
+key_user_idx    [T, R]
+key_user_weight [T, R]
+key_user_hop    [T, R]
+key_user_mask   [T, R]
+```
+
+Default values are `T=6`, `R=32`, `max_hops=4`.
+
+## Training Order
+
+1. Checkout `feature/key-user-pool-global-prior`.
+2. Upload or build the v2 key-user pool pack.
+3. Run key-user pack shape smoke.
+4. Run 64/32/32 end-to-end smoke.
+5. Run 512/256/256 speed test.
+6. Run formal v2 key-user seed0.
+7. Sync back `reports/` and `predictions/`.
+8. Add seed1/seed2 only after seed0 is stable.
+
+## Formal Config
+
+Use:
+
+```text
+configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
+```
+
+The expected output directory is:
+
+```text
+work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0
+```
+
+## Notes
+
+Training does not run RoBERTa. RoBERTa encoding, reduction, semantic aggregation, and key-user pool construction are offline preprocessing steps. The training stage only reads the pack.
+
+Do not prioritize the old edge-list `dragen_full_label_v2_roberta_text.yaml` Full run for formal v2 training on this branch. The speed diagnosis showed the global edge-list branch is the main bottleneck.
