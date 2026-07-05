@@ -25,6 +25,7 @@ model:
 train:
   epochs: 10
   batch_size: 8
+  max_nodes_per_batch: 12000
   lr: 0.001
   weight_decay: 0.00001
   seed: 0

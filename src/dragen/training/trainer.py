@@ -168,37 +168,95 @@ class NodeBucketBatchSampler:
         shuffle: bool,
         seed: int,
         bucket_size_multiplier: int = 50,
+        max_nodes_per_batch: int | None = None,
     ) -> None:
         self.node_counts = list(node_counts)
         self.batch_size = max(int(batch_size), 1)
         self.shuffle = bool(shuffle)
         self.seed = int(seed)
         self.bucket_size = max(self.batch_size * max(int(bucket_size_multiplier), 1), self.batch_size)
+        self.max_nodes_per_batch = int(max_nodes_per_batch or 0)
         self.epoch = 0
+        self._length_cache = self._build_batches(random.Random(self.seed), shuffle_buckets=False, shuffle_batches=False)
+        self.largest_batch_padded_nodes = self._largest_padded_nodes(self._length_cache)
 
-    def __iter__(self) -> Iterator[List[int]]:
-        rng = random.Random(self.seed + self.epoch)
-        self.epoch += 1
+    @property
+    def dynamic_nodes(self) -> bool:
+        return self.max_nodes_per_batch > 0
+
+    @staticmethod
+    def _batch_padded_nodes(batch: Sequence[int], node_counts: Sequence[int]) -> int:
+        if not batch:
+            return 0
+        return len(batch) * max(int(node_counts[idx]) for idx in batch)
+
+    def _largest_padded_nodes(self, batches: Sequence[Sequence[int]]) -> int:
+        if not batches:
+            return 0
+        return max(self._batch_padded_nodes(batch, self.node_counts) for batch in batches)
+
+    def _flush_dynamic_batch(self, batches: List[List[int]], batch: List[int]) -> None:
+        if batch:
+            batches.append(list(batch))
+            batch.clear()
+
+    def _append_dynamic_bucket(self, batches: List[List[int]], bucket: Sequence[int]) -> None:
+        batch: List[int] = []
+        max_nodes = 0
+        for idx in bucket:
+            nodes = int(self.node_counts[idx])
+            if nodes >= self.max_nodes_per_batch:
+                self._flush_dynamic_batch(batches, batch)
+                batches.append([idx])
+                max_nodes = 0
+                continue
+
+            next_size = len(batch) + 1
+            next_max_nodes = max(max_nodes, nodes)
+            next_padded_nodes = next_size * next_max_nodes
+            if batch and (next_size > self.batch_size or next_padded_nodes > self.max_nodes_per_batch):
+                self._flush_dynamic_batch(batches, batch)
+                max_nodes = 0
+
+            batch.append(idx)
+            max_nodes = max(max_nodes, nodes)
+            if len(batch) >= self.batch_size:
+                self._flush_dynamic_batch(batches, batch)
+                max_nodes = 0
+
+        self._flush_dynamic_batch(batches, batch)
+
+    def _build_batches(self, rng: random.Random, *, shuffle_buckets: bool, shuffle_batches: bool) -> List[List[int]]:
         indices = sorted(range(len(self.node_counts)), key=lambda idx: self.node_counts[idx])
         batches: List[List[int]] = []
         for start in range(0, len(indices), self.bucket_size):
             bucket = indices[start : start + self.bucket_size]
-            if self.shuffle:
+            if shuffle_buckets and not self.dynamic_nodes:
                 rng.shuffle(bucket)
-            for batch_start in range(0, len(bucket), self.batch_size):
-                batches.append(bucket[batch_start : batch_start + self.batch_size])
-        if self.shuffle:
+            if self.dynamic_nodes:
+                self._append_dynamic_bucket(batches, bucket)
+            else:
+                for batch_start in range(0, len(bucket), self.batch_size):
+                    batches.append(bucket[batch_start : batch_start + self.batch_size])
+        if shuffle_batches:
             rng.shuffle(batches)
+        return batches
+
+    def __iter__(self) -> Iterator[List[int]]:
+        rng = random.Random(self.seed + self.epoch)
+        self.epoch += 1
+        batches = self._build_batches(rng, shuffle_buckets=self.shuffle, shuffle_batches=self.shuffle)
+        self.largest_batch_padded_nodes = self._largest_padded_nodes(batches)
         return iter(batches)
 
     def __len__(self) -> int:
-        return (len(self.node_counts) + self.batch_size - 1) // self.batch_size
-
+        return len(self._length_cache)
 
 def build_loaders(datasets: Mapping[str, Any], args: Any, loader_kwargs: Dict[str, Any]) -> Dict[str, DataLoader]:
     loaders: Dict[str, DataLoader] = {}
     use_buckets = bool(getattr(args, "bucket_by_nodes", False))
     bucket_multiplier = int(getattr(args, "bucket_size_multiplier", 50) or 50)
+    max_nodes_per_batch = int(getattr(args, "max_nodes_per_batch", 0) or 0)
     for split, ds in datasets.items():
         if use_buckets:
             node_counts = [int(sample["node_x"].shape[1]) for sample in ds.samples]
@@ -208,10 +266,13 @@ def build_loaders(datasets: Mapping[str, Any], args: Any, loader_kwargs: Dict[st
                 shuffle=(split == "train"),
                 seed=int(getattr(args, "seed", 0)),
                 bucket_size_multiplier=bucket_multiplier,
+                max_nodes_per_batch=max_nodes_per_batch,
             )
             print(
-                f"{split} bucket_by_nodes=1 batches={len(sampler)} "
-                f"min_nodes={min(node_counts) if node_counts else 0} max_nodes={max(node_counts) if node_counts else 0}",
+                f"{split} bucket_by_nodes=1 dynamic_nodes={int(sampler.dynamic_nodes)} batches={len(sampler)} "
+                f"min_nodes={min(node_counts) if node_counts else 0} max_nodes={max(node_counts) if node_counts else 0} "
+                f"max_nodes_per_batch={max_nodes_per_batch if max_nodes_per_batch > 0 else 'none'} "
+                f"largest_batch_padded_nodes={sampler.largest_batch_padded_nodes}",
                 flush=True,
             )
             loaders[split] = DataLoader(ds, batch_sampler=sampler, collate_fn=collate_fn, **loader_kwargs)
@@ -224,7 +285,6 @@ def build_loaders(datasets: Mapping[str, Any], args: Any, loader_kwargs: Dict[st
                 **loader_kwargs,
             )
     return loaders
-
 def build_dataloader_kwargs(args: Any, device: torch.device) -> Dict[str, Any]:
     num_workers = max(int(getattr(args, "num_workers", 0) or 0), 0)
     pin_memory_arg = getattr(args, "pin_memory", None)

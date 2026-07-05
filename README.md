@@ -574,6 +574,7 @@ python scripts/16_train_dragen_full.py \
   --batch-size 8 \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
   --no-plot-every-epoch \
   --no-tensorboard \
   --max-train-samples 64 \
@@ -628,6 +629,7 @@ python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
   --no-plot-every-epoch \
   --no-tensorboard
 ```

@@ -104,6 +104,7 @@ def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
             "pin_memory": "pin_memory",
             "persistent_workers": "persistent_workers",
             "prefetch_factor": "prefetch_factor",
+            "max_nodes_per_batch": "max_nodes_per_batch",
         },
     )
     merge_section(
