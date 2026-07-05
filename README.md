@@ -593,3 +593,49 @@ key_user_pool epoch_time_sec = 42.07s
 ```
 
 This is close to `no_global=36.05s` and much faster than the old edge-list Full path `599.02s`.
+
+### Server Training Guide
+
+For server-side continuation, use the key-user branch and follow:
+
+```text
+docs/server_experiment_guide.md
+```
+
+Recommended server sequence:
+
+```text
+1. git fetch codezzp && git checkout feature/key-user-pool-global-prior && git pull
+2. upload or build the v2 key-user pack
+3. run key-user pack shape smoke
+4. run 64/32/32 end-to-end smoke
+5. run 512/256/256 speed test
+6. run formal v2 key-user seed0
+7. sync back reports/ and predictions/
+8. decide whether to add seed1/seed2 or v5 key-user
+```
+
+Key-user pack required by the formal v2 run:
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser
+```
+
+Formal v2 key-user command:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard
+```
+
+Default output:
+
+```text
+work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0
+```
+
+The old edge-list Full config is no longer the recommended first formal run because the speed diagnosis showed the global edge-list branch is the main bottleneck.
