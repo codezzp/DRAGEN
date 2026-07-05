@@ -14,11 +14,57 @@ from dragen.models.bayesian_gate import BayesianGate
 from dragen.models.evidence_reader import EvidenceReader
 from dragen.models.event_pooling import EventPooling
 from dragen.models.global_prior_encoder import GlobalPriorEncoder
+from dragen.models.key_user_global_prior import KeyUserGlobalPrior
 from dragen.models.local_role_encoder import LocalRoleEncoder
 from dragen.models.manipulation_state import ManipulationState
 from dragen.models.source_evidence_encoder import SourceEvidenceEncoder
 from dragen.models.temporal_memory import TemporalMemory
 
+
+def require_key_user_fields(batch: Dict[str, Any]) -> None:
+    required = ["key_user_idx", "key_user_weight", "key_user_hop", "key_user_mask"]
+    missing = [key for key in required if key not in batch]
+    if missing:
+        raise KeyError(
+            "key_user_pool global sampling requires pack fields: "
+            + ", ".join(required)
+            + f". Missing: {', '.join(missing)}. Rebuild the pack with scripts/13b_build_key_user_pool_packs.py."
+        )
+
+
+def key_user_neighbor_rows(
+    key_user_idx: torch.Tensor,
+    key_user_weight: torch.Tensor,
+    key_user_hop: torch.Tensor,
+    key_user_mask: torch.Tensor,
+) -> List[List[Dict[str, Any]]]:
+    rows_by_batch: List[List[Dict[str, Any]]] = []
+    idx = key_user_idx.detach().cpu()
+    weight = key_user_weight.detach().cpu()
+    hop = key_user_hop.detach().cpu()
+    mask = key_user_mask.detach().cpu().bool()
+    for b in range(idx.shape[0]):
+        rows: List[Dict[str, Any]] = []
+        rank = 1
+        for r in range(idx.shape[1]):
+            if not bool(mask[b, r]):
+                continue
+            rows.append(
+                {
+                    "target_local_node_idx": "window",
+                    "neighbor_local_node_idx": int(idx[b, r]),
+                    "sampled_score": "",
+                    "sampled_weight": float(weight[b, r]),
+                    "prior_source": f"key_user_hop_{int(hop[b, r])}",
+                    "sample_rank": rank,
+                    "local_node_idx": "window",
+                    "sample_weight": float(weight[b, r]),
+                    "source_type": f"key_user_hop_{int(hop[b, r])}",
+                }
+            )
+            rank += 1
+        rows_by_batch.append(rows)
+    return rows_by_batch
 
 class DRAGENFull(nn.Module):
     role_names = ROLE_NAMES
@@ -38,6 +84,8 @@ class DRAGENFull(nn.Module):
         use_uncertainty: bool = True,
         use_role: bool = True,
         text_semantic_dim: int = 64,
+        global_sampling_mode: str = "edge_list",
+        key_user_max_hops: int = 4,
     ) -> None:
         super().__init__()
         if role_num != len(ROLE_NAMES):
@@ -53,6 +101,7 @@ class DRAGENFull(nn.Module):
         self.use_gate = use_gate
         self.use_uncertainty = use_uncertainty
         self.use_role = use_role
+        self.global_sampling_mode = global_sampling_mode
         if int(text_semantic_dim or 0) <= 0:
             raise ValueError("RoBERTa-only DRAGEN requires text_semantic_dim > 0.")
 
@@ -61,6 +110,7 @@ class DRAGENFull(nn.Module):
         self.local_role_encoder = LocalRoleEncoder(hidden_dim, window_input_dim, dropout=dropout)
         self.sampler = AdaptiveGlobalSampler(hidden_dim=hidden_dim, top_k=top_k_global)
         self.global_encoder = GlobalPriorEncoder(hidden_dim, dropout)
+        self.key_user_global_prior = KeyUserGlobalPrior(hidden_dim, max_hops=key_user_max_hops, dropout=dropout)
         self.memory = TemporalMemory(hidden_dim)
         self.manipulation_state = ManipulationState(hidden_dim, window_input_dim, dropout)
         self.role_head = nn.Sequential(
@@ -125,20 +175,42 @@ class DRAGENFull(nn.Module):
         for t in range(T):
             local_t = self.local_role_encoder(e_local[:, t], window_x[:, t], [edge_context[b][t] for b in range(B)], node_mask[:, t])
             if self.use_global_prior:
-                sampled_edges, sample_weights, neigh, sampler_aux = self.sampler(
-                    e_obs[:, t],
-                    [edge_context[b][t] for b in range(B)],
-                    node_mask[:, t],
-                    global_edges=global_edges,
-                    global_edge_weights=global_edge_weights,
-                    current_edges=[edge_current[b][t] for b in range(B)],
-                    evidence_repr=e_obs[:, t],
-                    top_k=self.top_k_global,
-                    adaptive=self.use_adaptive_sampler,
-                )
-                sampler_edge_losses.append(sampler_aux["sampler_edge_loss"])
-                sampler_hub_losses.append(sampler_aux["sampler_hub_loss"])
-                global_t = self.global_encoder(e_obs[:, t], sampled_edges, sample_weights, node_mask[:, t])
+                if self.global_sampling_mode == "key_user_pool":
+                    require_key_user_fields(batch)
+                    key_user_out = self.key_user_global_prior.forward_step(
+                        e_obs[:, t],
+                        batch["key_user_idx"][:, t],
+                        batch["key_user_weight"][:, t],
+                        batch["key_user_hop"][:, t],
+                        batch["key_user_mask"][:, t],
+                        node_mask[:, t],
+                    )
+                    global_t = key_user_out["global_prior"]
+                    sampled_edges = [torch.zeros(2, 0, dtype=torch.long, device=node_x.device) for _ in range(B)]
+                    sample_weights = [torch.zeros(0, device=node_x.device) for _ in range(B)]
+                    neigh = key_user_neighbor_rows(
+                        batch["key_user_idx"][:, t],
+                        batch["key_user_weight"][:, t],
+                        batch["key_user_hop"][:, t],
+                        batch["key_user_mask"][:, t],
+                    )
+                    sampler_edge_losses.append(node_x.new_tensor(0.0))
+                    sampler_hub_losses.append(node_x.new_tensor(0.0))
+                else:
+                    sampled_edges, sample_weights, neigh, sampler_aux = self.sampler(
+                        e_obs[:, t],
+                        [edge_context[b][t] for b in range(B)],
+                        node_mask[:, t],
+                        global_edges=global_edges,
+                        global_edge_weights=global_edge_weights,
+                        current_edges=[edge_current[b][t] for b in range(B)],
+                        evidence_repr=e_obs[:, t],
+                        top_k=self.top_k_global,
+                        adaptive=self.use_adaptive_sampler,
+                    )
+                    sampler_edge_losses.append(sampler_aux["sampler_edge_loss"])
+                    sampler_hub_losses.append(sampler_aux["sampler_hub_loss"])
+                    global_t = self.global_encoder(e_obs[:, t], sampled_edges, sample_weights, node_mask[:, t])
             else:
                 sampled_edges = [torch.zeros(2, 0, dtype=torch.long, device=node_x.device) for _ in range(B)]
                 sample_weights = [torch.zeros(0, device=node_x.device) for _ in range(B)]

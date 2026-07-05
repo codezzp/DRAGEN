@@ -500,3 +500,96 @@ docs/label_design.md            弱标签版本设计
 docs/configuration.md           YAML 配置规则
 docs/server_experiment_guide.md 历史服务器迁移记录
 ```
+
+## Key-user Pool Global Prior Branch
+
+A new implementation branch is available for replacing the slow edge-list global prior path:
+
+```text
+feature/key-user-pool-global-prior
+```
+
+The goal of this branch is engineering speed, not a paper-text rewrite. It keeps the old `AdaptiveGlobalSampler + GlobalPriorEncoder` path as the default `edge_list` mode and adds a new `key_user_pool` mode.
+
+### Why
+
+The speed diagnosis on Label-v2 showed:
+
+```text
+old Full edge-list epoch_time_sec = 599.02s
+no_global epoch_time_sec          = 36.05s
+no_adaptive epoch_time_sec        = 516.22s
+```
+
+This means the bottleneck is the edge-list global branch as a whole, not only the adaptive scorer.
+
+### New Pack Format
+
+Build a key-user pack from an existing RoBERTa-text pack:
+
+```bash
+python scripts/13b_build_key_user_pool_packs.py \
+  --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser \
+  --max-hops 4 \
+  --key-users-per-window 32 \
+  --seed-budget 16 \
+  --rho 0.6
+```
+
+The script adds these per-sample fields:
+
+```text
+key_user_idx    [T, R]
+key_user_weight [T, R]
+key_user_hop    [T, R]
+key_user_mask   [T, R]
+```
+
+Default values are `T=6`, `R=32`, `max_hops=4`.
+
+### Training Config
+
+Use:
+
+```text
+configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml
+```
+
+Main fields:
+
+```yaml
+model:
+  global_sampling_mode: key_user_pool
+  key_user_max_hops: 4
+  key_users_per_window: 32
+```
+
+### Smoke Test
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --epochs 1 \
+  --batch-size 8 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --max-train-samples 64 \
+  --max-valid-samples 32 \
+  --max-test-samples 32 \
+  --out-dir work/artifacts/_smoke_v2_keyuser_pool_e2e
+```
+
+Verified locally: the 64/32/32 end-to-end smoke completed, including valid/test export.
+
+### Speed Result
+
+With 512/256/256 samples, `batch_size=8`, bucket enabled, the key-user mode reached:
+
+```text
+key_user_pool epoch_time_sec = 42.07s
+```
+
+This is close to `no_global=36.05s` and much faster than the old edge-list Full path `599.02s`.

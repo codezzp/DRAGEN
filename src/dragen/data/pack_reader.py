@@ -134,7 +134,25 @@ def collate_fn(samples: List[Mapping[str, Any]]) -> Dict[str, Any]:
         batch["node_evidence_x"] = node_evidence_x
     if window_evidence_x is not None:
         batch["window_evidence_x"] = window_evidence_x
+    if "key_user_idx" in samples[0]:
+        batch["key_user_idx"] = _pad_key_user_field(samples, "key_user_idx", pad_value=0)
+        batch["key_user_weight"] = _pad_key_user_field(samples, "key_user_weight", pad_value=0.0)
+        batch["key_user_hop"] = _pad_key_user_field(samples, "key_user_hop", pad_value=0)
+        batch["key_user_mask"] = _pad_key_user_field(samples, "key_user_mask", pad_value=False)
     return batch
+
+
+def _pad_key_user_field(samples: List[Mapping[str, Any]], key: str, pad_value: Any = 0) -> torch.Tensor:
+    B = len(samples)
+    T = int(np.asarray(samples[0][key]).shape[0])
+    R = max(int(np.asarray(sample[key]).shape[1]) for sample in samples)
+    first = torch.as_tensor(np.asarray(samples[0][key]))
+    out = torch.full((B, T, R), pad_value, dtype=first.dtype)
+    for b, sample in enumerate(samples):
+        x = torch.as_tensor(np.asarray(sample[key]), dtype=first.dtype)
+        r = int(x.shape[1])
+        out[b, :, :r] = x
+    return out
 
 
 def infer_optional_dim(samples: List[Mapping[str, Any]], key: str) -> int:

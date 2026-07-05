@@ -246,3 +246,76 @@ python scripts/13_build_packs.py \
   --text-semantic-dir work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64 \
   --out-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
 ```
+
+## Key-user Pool Global Prior Commands
+
+This branch adds a faster global prior mode that replaces the old variable edge-list global branch with a window-level key-user pool and GPU cross-attention.
+
+Build the Label-v2 key-user pack:
+
+```bash
+python scripts/13b_build_key_user_pool_packs.py \
+  --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser \
+  --max-hops 4 \
+  --key-users-per-window 32 \
+  --seed-budget 16 \
+  --rho 0.6
+```
+
+Check pack shapes:
+
+```bash
+python -c "import sys; sys.path.insert(0,'src'); from dragen.data.pack_reader import PickleStreamDataset, collate_fn; p='packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser/train.pt'; ds=PickleStreamDataset(p,max_samples=2,split='train-smoke'); b=collate_fn([ds[0],ds[1]]); [print(k, tuple(b[k].shape), b[k].dtype) for k in ['window_x','node_x','node_text_x','window_text_x','key_user_idx','key_user_weight','key_user_hop','key_user_mask']]"
+```
+
+Expected key-user fields:
+
+```text
+key_user_idx     (B, 6, 32)
+key_user_weight  (B, 6, 32)
+key_user_hop     (B, 6, 32)
+key_user_mask    (B, 6, 32)
+```
+
+Run a small end-to-end smoke:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --epochs 1 \
+  --batch-size 8 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --max-train-samples 64 \
+  --max-valid-samples 32 \
+  --max-test-samples 32 \
+  --out-dir work/artifacts/_smoke_v2_keyuser_pool_e2e
+```
+
+Run a speed test:
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --epochs 1 \
+  --batch-size 8 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --max-train-samples 512 \
+  --max-valid-samples 256 \
+  --max-test-samples 256 \
+  --out-dir work/artifacts/_speed_v2_keyuser_pool_bs8_bucket
+```
+
+Local speed result for the training epoch:
+
+```text
+old edge-list Full = 599.02s
+no_global          = 36.05s
+key_user_pool      = 42.07s
+```
