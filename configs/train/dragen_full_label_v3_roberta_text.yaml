@@ -1,0 +1,55 @@
+run_id: run_0002
+experiment_name: dragen_follow_adaptive_label_v3_roberta_text_feature_v2_seed0
+
+data:
+  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
+  input_variant: MultiScale-HybridTree-FeatureV2-GlobalFollow-LabelV3-RoBERTaText
+
+model:
+  name: DRAGEN-Full
+  hidden_dim: 64
+  role_num: 5
+  top_k_global: 20
+  text_semantic_dim: 64
+  use_global_prior: true
+  use_adaptive_sampling: true
+  use_memory: true
+  use_gate: true
+  use_uncertainty: true
+  use_role: true
+  dropout: 0.1
+
+train:
+  epochs: 10
+  batch_size: 8
+  lr: 0.001
+  weight_decay: 0.00001
+  seed: 0
+  device: auto
+  eval_every: 1
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+loss:
+  lambda_jump: 0.01
+  lambda_struct: 0.005
+  lambda_align: 0.001
+  lambda_uncertainty: 0.001
+  lambda_role: 0.0
+  lambda_sampler_edge: 0.005
+  lambda_sampler_hub: 0.001
+  lambda_sampler_temp: 0.005
+
+logging:
+  tensorboard: true
+  tb_log_dir:
+  plot_every_epoch: true
+
+checkpoint:
+  resume:
+  save_every_epoch: false
+
+output:
+  out_dir: work/artifacts/dragen_follow_adaptive_label_v3_roberta_text_feature_v2_seed0

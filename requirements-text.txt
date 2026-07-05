@@ -1,0 +1,2 @@
+# Optional dependencies for offline RoBERTa text embedding preprocessing.
+transformers>=4.40.0

@@ -1,1 +1,7 @@
-# Runtime dependencies will be pinned as the pipeline stabilizes.
+torch>=2.1.0
+numpy>=1.24.0
+pytest>=7.0
+tqdm>=4.66.0
+tensorboard>=2.14.0
+PyYAML>=6.0
+matplotlib>=3.7.0

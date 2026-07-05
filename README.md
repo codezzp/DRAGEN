@@ -1,142 +1,595 @@
 # DRAGEN
 
-DRAGEN 是一个用于级联预测实验的工程目录。当前目录的核心约定是：每批数据固定放在 `work/runs/<run_id>/`，命令入口放在 `scripts/`，真正的实现逻辑放在 `src/dragen/`。
-
-当前阶段已经完成工程结构、数据边界和 30m/5m 窗口划分入口。特征构建、模型训练等模块还没有作为正式入口暴露，等窗口表契约稳定后再继续实现。
-
-## 目录结构
+DRAGEN 是组织化级联传播预测实验仓库。当前主线是：
 
 ```text
-DRAGEN/
-  configs/                 # 实验配置，按 data/window/model/train 分组。
-  docs/                    # 项目文档，不放运行代码。
-  scripts/                 # 只放命令入口脚本。
-  src/dragen/              # 核心源码。
-  work/
-    runs/<run_id>/         # 每个 run 是一个独立实验数据单元。
-    artifacts/             # 跨 run 的实验产物，例如日志、模型、报告。
-  tests/                   # 小规模验证测试。
-  notebooks/               # 临时分析 notebook，不作为正式代码。
+Feature-v2 + RoBERTa Text + Adaptive Global Sampling + Global Follow candidates
 ```
 
-## 数据原则
-
-不要把数据散到项目根目录。每批数据固定保留在：
+当前代码分支：
 
 ```text
-work/runs/<run_id>/
-  processed/
-  org_task/
-  time_distribution/
-  time_distribution/dev_cascade_lists/
+experiment/run-0002-roberta-only
 ```
 
-后续训练和评估表应优先使用稳定的索引字段，例如 `cascade_idx`、`tweet_idx`、`user_idx`。真实原始 ID 只保留在映射文件或调试文件中，不作为模型输入。
-
-当前窗口链路使用 `work/runs/<run_id>/org_task/` 作为输入，生成结果固定写入：
+大文件和实验产物不进 Git：
 
 ```text
-work/runs/<run_id>/windows/obs_<obs>_win<window>_step<step>/
+work/
+packs/
+graph/follow_edges.tsv
+*.zip
 ```
 
-窗口构建不会修改 `processed/` 或 `org_task/` 下的原始中间表。
+代码、配置和文档走 Git；数据包、训练结果、checkpoint 用 `scp` / `rsync` 单独传输。
 
-## 脚本原则
+## 1. 当前状态
 
-`scripts/` 只做入口，不堆核心逻辑。入口脚本应该导入 `src/dragen` 里的 `main()` 再执行：
-
-```python
-from dragen.windowing.window_builder import main
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-```
-
-真正的数据处理、窗口划分、特征构建、训练和评估逻辑都应该放在 `src/dragen/...`。
-
-## 当前保留入口
+本机已经完成 `run_0002` 的正式 RoBERTa-text pack：
 
 ```text
-scripts/01_build_org_tables.py
-scripts/02_analyze_time_distribution.py
-scripts/03_build_dev_cascade_lists.py
-scripts/05_build_windows.py
-scripts/06_build_inferred_tree.py
-scripts/07_visualize_tree.py
-scripts/08_export_reports.py
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
 ```
 
-窗口入口会从 `work/runs/<run_id>/org_task/` 读取标准任务表，并写出四张窗口表。默认使用星形边：
+实验策略：
+
+```text
+v2：主实验标签版本
+v5：严格标签鲁棒性验证
+v3/v4：先保留，后面有时间再补
+```
+
+已经验证过的输入维度：
+
+```text
+window_x      = (B, 6, 24)
+node_x        = (B, 6, N, 47)
+node_text_x   = (B, 6, N, 64)
+window_text_x = (B, 6, 64)
+```
+
+RoBERTa 文本产物：
+
+```text
+root embedding 原始维度    = (85263, 768)
+retweet embedding 原始维度 = (193331, 768)
+降维后维度                 = 64
+node_text_features         = (567718, 64)
+window_text_features       = (511578, 64)
+```
+
+注意：很多 retweet 行没有原始文本，所以这些节点的 `node_text_x` 是零向量；但每个窗口都有 root 文本语义，所以 `window_text_x` 不为空。
+
+## 2. 服务器部署
+
+服务器拉代码：
+
+```bash
+git clone git@github.com:codezzp/DRAGEN.git
+cd DRAGEN
+git checkout experiment/run-0002-roberta-only
+```
+
+如果服务器已有仓库：
+
+```bash
+cd DRAGEN
+git fetch codezzp
+git checkout experiment/run-0002-roberta-only
+git pull
+```
+
+推荐环境：
+
+```text
+Python >= 3.10
+PyTorch CUDA 版
+numpy pandas scipy scikit-learn tqdm pyyaml matplotlib networkx
+transformers tokenizers safetensors huggingface_hub
+```
+
+安装依赖：
+
+```bash
+python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+python -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+python -m pip install --upgrade pip setuptools wheel
+
+python -m pip install numpy pandas scipy scikit-learn tqdm pyyaml matplotlib networkx
+python -m pip install transformers accelerate datasets sentencepiece tokenizers safetensors huggingface_hub
+python -m pip install tensorboard
+```
+
+PyTorch 根据服务器 CUDA 版本安装。CUDA 12.8 示例：
+
+```bash
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+验证 GPU：
+
+```bash
+python - <<'PY'
+import torch
+print('torch:', torch.__version__)
+print('torch cuda:', torch.version.cuda)
+print('cuda available:', torch.cuda.is_available())
+if torch.cuda.is_available():
+    print('gpu:', torch.cuda.get_device_name(0))
+PY
+```
+
+## 3. 需要传到服务器的数据
+
+第一批只传 v2 和 v5：
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
+```
+
+每个 pack 目录必须包含：
+
+```text
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
+```
+
+可选传输，后续补实验时再用：
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
+```
+
+PowerShell 传输示例：
 
 ```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode star
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text user@server:/path/to/DRAGEN/packs/
+scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text user@server:/path/to/DRAGEN/packs/
 ```
 
-输出目录：
+Linux/macOS 或服务器间传输示例：
+
+```bash
+rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/ \
+  user@server:/path/to/DRAGEN/packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/
+
+rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text/ \
+  user@server:/path/to/DRAGEN/packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text/
+```
+
+正常训练不需要传：
 
 ```text
-work/runs/run_0002/windows/obs_1800_win300_step300_star/
-  window_table.csv
-  node_window_table.csv
-  edge_window_table.csv
-  text_window_table.csv
-  cascade_window_index.json
-  window_diagnostics.json
+graph/follow_edges.tsv
+work/runs/run_0002/windows/
+work/runs/run_0002/features_v2/
+work/runs/run_0002/text_embeddings/
 ```
 
-`run_0002` 的 30m/5m 完整构建结果已经生成，诊断摘要如下：
+因为训练只读 pack，global follow candidate 和 RoBERTa text 已经写进 `.pt`。
+
+## 4. 第一件事：服务器 smoke test
+
+先检查 v2 pack 能不能读取：
+
+```bash
+python - <<'PY'
+import sys
+sys.path.insert(0, 'src')
+from dragen.data.pack_reader import PickleStreamDataset, collate_fn
+p = 'packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text/train.pt'
+ds = PickleStreamDataset(p, max_samples=2, split='train-smoke')
+b = collate_fn([ds[0], ds[1]])
+print('window_x', tuple(b['window_x'].shape))
+print('node_x', tuple(b['node_x'].shape))
+print('node_text_x', tuple(b['node_text_x'].shape))
+print('window_text_x', tuple(b['window_text_x'].shape))
+print('global edges', [tuple(x.shape) for x in b['global_candidate_edge_index']])
+PY
+```
+
+然后跑一个 1 epoch 小样本训练：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --epochs 1 \
+  --max-train-samples 256 \
+  --max-valid-samples 128 \
+  --max-test-samples 128 \
+  --out-dir work/artifacts/_smoke_dragen_v2_roberta_text
+```
+
+检查输出：
+
+```bash
+ls work/artifacts/_smoke_dragen_v2_roberta_text/reports
+ls work/artifacts/_smoke_dragen_v2_roberta_text/predictions
+cat work/artifacts/_smoke_dragen_v2_roberta_text/reports/metrics.json
+```
+
+如果 smoke test 报错，先不要跑正式实验。
+
+## 5. 正式实验顺序
+
+推荐顺序：
 
 ```text
-cascades: 85263
-windows_per_cascade: 6
-window_rows: 511578
-node_window_rows: 5940259
-edge_window_rows: 1392078
-text_window_rows: 6032866
-root_text_window_rows: 511578
-retweet_text_early_violations: 0
+1. v2 DRAGEN-Full seed 0
+2. v2 DRAGEN-Full seed 1 / seed 2，有时间再补
+3. v2 核心消融
+4. v5 严格标签鲁棒性
+5. 导出结果表和回传 predictions/reports
 ```
 
-结构重构实验需要先构建代理传播树，再用树边重建窗口：
-
-```powershell
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method branching_time --out-dir work/runs/run_0002/edges
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode inferred_tree
-```
-
-树形窗口默认输出到：
+当前分支里的 baseline 入口还只是占位实现：
 
 ```text
-work/runs/run_0002/windows/obs_1800_win300_step300_tree/
+src/dragen/baselines/cac_stat.py
+src/dragen/baselines/campaign_gnn.py
+src/dragen/baselines/temporal_gnn.py
 ```
 
-注意：`time_only` 会把大级联构造成接近线性的深链，只作为结构对照或反例。正式树形结构默认使用 `branching_time`，它会用时间接近、深度惩罚、父节点活跃度和分支负载共同选择父节点。
+因此现在不要直接跑：
 
-树形结构可视化入口：
-
-```powershell
-python scripts/07_visualize_tree.py --run-id run_0002 --cascade-id 78857 --tree-edges work/runs/run_0002/edges/_viz_cascade_78857_branching/inferred_tree_edge_table.csv --out work/runs/run_0002/edges/_viz_cascade_78857_branching/cascade_78857_branching_tree.svg --max-nodes 180
+```bash
+python scripts/14_train_cac_stat.py
+python scripts/15_train_gnn_baselines.py
 ```
 
-窗口策略现在有两个层次：
+它们不会产生正式 baseline 结果。当前服务器可直接执行的是 DRAGEN-Full 和 DRAGEN 模块消融。
 
-- `Fixed-5m`：当前已生成的 baseline，非重叠 5 分钟窗口。
-- `Causal MultiScale`：端点对齐多尺度因果窗口，每 5 分钟一个端点，同时生成 current 5m、context 10m 和 cumulative 历史统计。
+## 6. v2 主实验
 
-MultiScale 调试命令：
+seed 0：
 
-```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode star --max-cascades 10 --out-dir work/runs/run_0002/windows/_debug_obs_1800_step300_multiscale_star
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml
 ```
 
-没有实现完成的特征、训练、评估入口暂时不保留，避免把空壳脚本当成可运行流程。
+seed 1：
 
-## 文档
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed1
+```
 
-- [docs/window_design.md](docs/window_design.md)：窗口划分设计。
-- [docs/data_schema.md](docs/data_schema.md)：核心数据表字段。
-- [docs/evidence_features.md](docs/evidence_features.md)：多源证据特征设计。
-- [docs/graph_design.md](docs/graph_design.md)：星形边与代理传播树设计。
-- [docs/model_design.md](docs/model_design.md)：DRAGEN 模型边界和组件。
-- [docs/experiment_protocol.md](docs/experiment_protocol.md)：实验流程约定。
-- [docs/run_notes.md](docs/run_notes.md)：实验记录。
+seed 2：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --seed 2 \
+  --out-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed2
+```
+
+断点续训：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --resume work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
+```
+
+## 7. v5 严格标签鲁棒性
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5_roberta_text.yaml
+```
+
+如果要补 seed：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5_roberta_text.yaml \
+  --seed 1 \
+  --out-dir work/artifacts/dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed1
+```
+
+## 8. v2 消融实验
+
+现有消融 YAML 默认指向 v4 pack。如果论文主消融要用 v2，请用 CLI 覆盖 `--pack-dir` 和 `--out-dir`。
+
+v2 主 pack：
+
+```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+```
+
+核心消融：
+
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_global_prior.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_global_prior
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_role.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_role
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_memory.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_memory
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_gate.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_gate
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_uncertainty.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_uncertainty
+
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_adaptive_sampling.yaml \
+  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-dir work/artifacts/label_v2_ablation_no_adaptive_sampling
+```
+
+暂时不要直接跑以下消融，除非已经准备好对应 pack 或代码：
+
+```text
+w/o RoBERTa Text
+w/o MultiScale Context
+w/o HybridTree
+```
+
+原因：当前分支是 RoBERTa-only，模型要求 pack 里有 `node_text_x`；`w/o MultiScale` 和 `w/o HybridTree` 也需要对应结构的 feature_v2 + roberta_text pack。
+
+## 9. 结果检查
+
+每个 run 结束后看：
+
+```bash
+cat work/artifacts/<run>/reports/metrics.json
+head work/artifacts/<run>/predictions/event_predictions.csv
+ls work/artifacts/<run>/checkpoints
+```
+
+重点文件：
+
+```text
+reports/metrics.json
+reports/loss_breakdown.json
+reports/epoch_metrics.csv
+reports/resolved_config.yaml
+reports/command.txt
+reports/git_info.json
+predictions/event_predictions.csv
+predictions/valid_event_predictions.csv
+predictions/test_event_predictions.csv
+predictions/node_window_predictions.csv
+predictions/role_distribution.csv
+predictions/gate_weights.csv
+predictions/uncertainty.csv
+predictions/event_attention.csv
+predictions/sampled_global_neighbors.csv
+checkpoints/best.pt
+checkpoints/last.pt
+```
+
+如果 checkpoint 太大，至少回传：
+
+```text
+reports/
+predictions/
+```
+
+## 10. 阈值和正式指标
+
+当前代码默认分类阈值仍是：
+
+```text
+threshold = 0.5
+```
+
+论文正式结果建议后处理为：
+
+```text
+在 valid_event_predictions.csv 上选择 F1 最优 threshold，
+然后把这个 threshold 固定应用到 test_event_predictions.csv。
+```
+
+这样可以避免出现：
+
+```text
+AUC 高，但 Precision / Recall / F1 = 0
+```
+
+正式表至少看：
+
+```text
+AUC
+AUPRC / AP
+Precision
+Recall
+F1
+MCC
+Accuracy
+Best threshold
+Precision@K
+Recall@K
+```
+
+## 11. 导出结果表
+
+训练完成后运行预测分析：
+
+```bash
+python scripts/19_analyze_predictions.py \
+  --artifact-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0
+```
+
+导出表格：
+
+```bash
+python scripts/18_export_result_tables.py \
+  --run-dirs \
+    work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+    work/artifacts/dragen_follow_adaptive_label_v5_roberta_text_feature_v2_seed0 \
+  --ablation-run-dirs \
+    work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+    work/artifacts/label_v2_ablation_no_global_prior \
+    work/artifacts/label_v2_ablation_no_role \
+    work/artifacts/label_v2_ablation_no_memory \
+    work/artifacts/label_v2_ablation_no_gate \
+    work/artifacts/label_v2_ablation_no_uncertainty \
+    work/artifacts/label_v2_ablation_no_adaptive_sampling \
+  --full-run-dir work/artifacts/dragen_follow_adaptive_label_v2_roberta_text_feature_v2_seed0 \
+  --out-dir work/artifacts/reports
+```
+
+输出：
+
+```text
+work/artifacts/reports/main_results.csv
+work/artifacts/reports/risk_retrieval_results.csv
+work/artifacts/reports/ablation_results.csv
+```
+
+## 12. 如果必须在服务器重建 pack
+
+正常不建议服务器重建 pack。确实要重建时，需要先传：
+
+```text
+work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree/
+work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
+work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64/
+work/runs/run_0002/labels_v2_stratified_score/
+work/runs/run_0002/labels_v5_ensemble_consensus/
+```
+
+重建 v2 pack：
+
+```bash
+python scripts/13_build_packs.py \
+  --run-id run_0002 \
+  --feature-dir work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree \
+  --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree \
+  --labels work/runs/run_0002/labels_v2_stratified_score/weak_event_labels.csv \
+  --global-candidate-edges work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv \
+  --text-semantic-dir work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64 \
+  --out-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
+```
+
+不要在服务器重扫 `graph/follow_edges.tsv`，除非必须重建 global candidate table。
+
+## 13. 相关文档
+
+```text
+docs/training_commands.md       RoBERTa 预处理和 pack 构建命令
+docs/results_summary.md         当前实验进度
+docs/label_design.md            弱标签版本设计
+docs/configuration.md           YAML 配置规则
+docs/server_experiment_guide.md 历史服务器迁移记录
+```
+
+## Key-user Pool Global Prior Branch
+
+A new implementation branch is available for replacing the slow edge-list global prior path:
+
+```text
+feature/key-user-pool-global-prior
+```
+
+The goal of this branch is engineering speed, not a paper-text rewrite. It keeps the old `AdaptiveGlobalSampler + GlobalPriorEncoder` path as the default `edge_list` mode and adds a new `key_user_pool` mode.
+
+### Why
+
+The speed diagnosis on Label-v2 showed:
+
+```text
+old Full edge-list epoch_time_sec = 599.02s
+no_global epoch_time_sec          = 36.05s
+no_adaptive epoch_time_sec        = 516.22s
+```
+
+This means the bottleneck is the edge-list global branch as a whole, not only the adaptive scorer.
+
+### New Pack Format
+
+Build a key-user pack from an existing RoBERTa-text pack:
+
+```bash
+python scripts/13b_build_key_user_pool_packs.py \
+  --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
+  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser \
+  --max-hops 4 \
+  --key-users-per-window 32 \
+  --seed-budget 16 \
+  --rho 0.6
+```
+
+The script adds these per-sample fields:
+
+```text
+key_user_idx    [T, R]
+key_user_weight [T, R]
+key_user_hop    [T, R]
+key_user_mask   [T, R]
+```
+
+Default values are `T=6`, `R=32`, `max_hops=4`.
+
+### Training Config
+
+Use:
+
+```text
+configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml
+```
+
+Main fields:
+
+```yaml
+model:
+  global_sampling_mode: key_user_pool
+  key_user_max_hops: 4
+  key_users_per_window: 32
+```
+
+### Smoke Test
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_keyuser.yaml \
+  --epochs 1 \
+  --batch-size 8 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --max-train-samples 64 \
+  --max-valid-samples 32 \
+  --max-test-samples 32 \
+  --out-dir work/artifacts/_smoke_v2_keyuser_pool_e2e
+```
+
+Verified locally: the 64/32/32 end-to-end smoke completed, including valid/test export.
+
+### Speed Result
+
+With 512/256/256 samples, `batch_size=8`, bucket enabled, the key-user mode reached:
+
+```text
+key_user_pool epoch_time_sec = 42.07s
+```
+
+This is close to `no_global=36.05s` and much faster than the old edge-list Full path `599.02s`.

@@ -1,0 +1,39 @@
+run_id: run_0002
+experiment_name: ablation_no_tree
+ablation: no_tree
+data:
+  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
+  input_variant: MultiScale-HybridTree-FeatureV2-GlobalFollow-LabelV4-RoBERTaText
+model:
+  name: w/o Tree
+  hidden_dim: 64
+  role_num: 5
+  top_k_global: 20
+  text_semantic_dim: 64
+  use_global_prior: true
+  use_adaptive_sampling: true
+  use_memory: true
+  use_gate: true
+  use_uncertainty: true
+  use_role: true
+  dropout: 0.1
+train:
+  epochs: 10
+  batch_size: 8
+  lr: 0.001
+  weight_decay: 0.00001
+  seed: 0
+  device: auto
+loss:
+  lambda_jump: 0.01
+  lambda_struct: 0.005
+  lambda_align: 0.001
+  lambda_uncertainty: 0.001
+  lambda_role: 0.0
+logging:
+  tensorboard: true
+checkpoint:
+  resume:
+  save_every_epoch: false
+output:
+  out_dir: work/artifacts/roberta_only_ablation_no_tree

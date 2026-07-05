@@ -1,2 +1,9 @@
 # Local experiment outputs and datasets.
 /work/
+/graph/follow_edges.tsv
+
+# Python runtime caches.
+__pycache__/
+*.py[cod]
+/packs/
+*.zip

@@ -1,0 +1,31 @@
+model_name: dragen_full
+
+node_input_dim: 27
+window_input_dim: 12
+hidden_dim: 64
+
+source_names:
+  - text
+  - emotion
+  - behavior
+  - structure
+
+role_num: 5
+role_names:
+  - producer
+  - amplifier
+  - suppressor
+  - reframer
+  - ordinary
+
+top_k_global: 20
+use_source_evidence: true
+use_local_role_encoder: true
+use_global_prior: true
+use_adaptive_sampler: true
+use_temporal_memory: true
+use_manipulation_state: true
+use_prior_observation_gate: true
+use_uncertainty: true
+
+dropout: 0.1

@@ -1,9 +1,15 @@
 # 图结构与代理传播树设计
 
-DRAGEN 的实验分成两条线：
+DRAGEN 的预处理结构已经冻结。图结构文档现在只记录当前正式输入和必要背景，不再作为继续扩展树结构的计划。
 
-- 主实验线：证明 DRAGEN 对组织化操控识别有效。
-- 结构重构线：证明将星形级联构建为时间一致的代理传播树有必要，并且不会引入明显结构错误。
+当前主实验使用：
+
+```text
+HybridTree Light
+不扫描全量关注图
+30m 观测期
+5m 窗口端点
+```
 
 ## 基本原则
 
@@ -33,11 +39,12 @@ work/runs/<run_id>/edges/
   README.md
 ```
 
-星形窗口和树形窗口也要分开输出：
+星形窗口和树形窗口分开输出：
 
 ```text
-work/runs/<run_id>/windows/obs_1800_win300_step300_star/
-work/runs/<run_id>/windows/obs_1800_win300_step300_tree/
+work/runs/run_0002/windows/obs_1800_win300_step300/
+work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree/
+work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree/
 ```
 
 ## Tree-v1
@@ -58,7 +65,7 @@ src/dragen/graph/infer_tree.py
 - `hybrid_no_text`：Hybrid 消融，关闭文本相似度。
 - `hybrid_no_follow`：Hybrid 消融，关闭关注证据。
 
-注意：`graph/follow_edges.tsv` 当前约 7.3GB，`follow_time` 会流式扫描该文件。推荐先用 `branching_time` 跑全量结构基线，再在 dev list 或小样本上验证 `follow_time`。
+注意：`graph/follow_edges.tsv` 是大文件，当前远端实验分支已排除。DRAGEN-Full 正式实验不需要该文件。
 
 ## 非线性约束
 
@@ -74,7 +81,7 @@ branching_time:
   max_depth = 18
 ```
 
-因此正式实验使用 `branching_time` 或后续的 `follow_time / hybrid`，不要把 `time_only` 当作主树结构。
+历史调试结论是：`time_only` 只保留为反例。当前冻结的正式树结构是 `hybrid` 方法生成的 HybridTree Light。
 
 ## 轻量 HybridTree
 
@@ -107,41 +114,27 @@ Score(u, v)
 
 root 不参与常规排序，只作为证据不足时的 fallback。这样避免 root 由于文本相似或早期优势吸附过多节点。
 
-## 构建命令
+## 当前正式构建命令
 
-全量分支时间树：
-
-```powershell
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method branching_time --out-dir work/runs/run_0002/edges
-```
-
-小样本关注增强树：
+全量 HybridTree Light：
 
 ```powershell
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method follow_time --max-cascades 10 --out-dir work/runs/run_0002/edges/_debug_tree_follow
+python scripts/06_build_inferred_tree.py --run-id run_0002 --method hybrid --max-observation-seconds 1800 --out-dir work/runs/run_0002/edges/hybrid_tree_light
 ```
 
-使用树边构建窗口：
+Fixed-5m HybridTree 窗口：
 
 ```powershell
-python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode inferred_tree
+python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_win300_step300_hybrid_tree
 ```
 
-轻量 HybridTree 小样本调试：
+MultiScale HybridTree 窗口：
 
 ```powershell
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method hybrid --max-cascades 10 --max-observation-seconds 1800 --out-dir work/runs/run_0002/edges/_debug_tree_hybrid_light_obs1800
+python scripts/05_build_windows.py --run-id run_0002 --window-config configs/window/obs_30m_step5m_multiscale.yaml --edge-mode inferred_tree --inferred-tree-edge-table work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv --out-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree
 ```
 
-如果要启用关注证据，先构建或指定 run 级关注子图，再传给 HybridTree：
-
-```powershell
-python scripts/09_build_follow_subgraph.py --run-id run_0002 --out-dir work/runs/run_0002/graphs/follow_subgraph
-
-python scripts/06_build_inferred_tree.py --run-id run_0002 --method hybrid --follow-edges work/runs/run_0002/graphs/follow_subgraph/follow_edges_run.tsv --out-dir work/runs/run_0002/edges/hybrid_tree
-```
-
-注意：`scripts/09_build_follow_subgraph.py` 会扫描全量 `graph/follow_edges.tsv`，不要在每次调试时运行。
+后续不要在主实验闭环前继续运行关注图全量扫描。
 
 ## 可视化
 
@@ -256,3 +249,20 @@ Table 2. Comparison of edge construction strategies.
 - BranchingTimeTree，当前默认树结构
 - FollowTree
 - HybridTree
+
+
+## 2026-07-02 Update: Follow Graph Candidate Pool
+
+The previous note that DRAGEN-Full does not need `graph/follow_edges.tsv` is superseded for experiments using the global prior. The full follow graph is still not loaded during training and no dense global adjacency is built. Instead, it is scanned once offline to construct per-cascade candidate pools:
+
+```powershell
+python scripts/10_build_global_candidate_edges.py --run-id run_0002 --follow-edges graph/follow_edges.tsv
+```
+
+This writes:
+
+```text
+work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv
+```
+
+The pack stores candidate edges only. Adaptive Top-K sampling remains inside model forward.
