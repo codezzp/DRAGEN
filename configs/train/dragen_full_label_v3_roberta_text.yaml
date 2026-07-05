@@ -27,7 +27,7 @@ train:
   seed: 0
   device: auto
   eval_every: 1
-  num_workers: 4
+  num_workers: 8
   pin_memory: true
   persistent_workers: true
   prefetch_factor: 2
