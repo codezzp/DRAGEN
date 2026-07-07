@@ -1,30 +1,56 @@
-# DRAGEN Training Commands
+# run_0003 Server Training Checklist
 
-This file is the command index for the current server migration branch.
+Use this checklist when moving the formal Weibo experiment to the server.
 
-Current branch:
-
-```text
-experiment/run-0003-server-training-docs
-```
-
-Current priority:
+## Status
 
 ```text
-run_0003 formal DRAGEN training
+run_0003 formal training has not been run yet.
+run_0003 pack and key-user pack are ready locally.
+A tiny smoke run exists only for pipeline validation.
 ```
 
-Important: `run_0003` formal training has not been run yet. Existing full seed artifacts under `work/artifacts/_artifacts/` are older non-run-prefixed pack runs and must not be reported as `run_0003` results.
+Do not use these old local artifacts as formal `run_0003` results:
 
-## 1. Required run_0003 Pack
+```text
+work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0
+work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1
+work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2
+```
+
+Those runs used the older default pack path, not the explicit `run_0003` pack.
+
+## Branch
+
+```bash
+git checkout experiment/run-0003-server-training-docs
+```
+
+## Required Pack
 
 ```text
 packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
 ```
 
-Every `run_0003` command below passes this explicitly with `--pack-dir` because the YAML default still points to the older pack path.
+Required files:
 
-## 2. Smoke
+```text
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
+```
+
+## Upload Pack
+
+```bash
+rsync -av --progress \
+  packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/ \
+  user@server:/path/to/DRAGEN/packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/
+```
+
+## Smoke
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -43,7 +69,7 @@ python scripts/16_train_dragen_full.py \
   --out-dir work/artifacts/_smoke_run_0003_key_user_pool
 ```
 
-## 3. Formal Main Runs
+## Formal Training
 
 Seed0:
 
@@ -90,32 +116,14 @@ python scripts/16_train_dragen_full.py \
   --out-dir work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed2
 ```
 
-## 4. Resume
+## Sync Back
 
 ```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --pack-dir packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
-  --resume work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0/checkpoints/last.pt \
-  --bucket-by-nodes \
-  --bucket-size-multiplier 50 \
-  --max-nodes-per-batch 12000 \
-  --no-plot-every-epoch \
-  --no-tensorboard \
-  --out-dir work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0
-```
+rsync -av --progress \
+  user@server:/path/to/DRAGEN/work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0/reports/ \
+  work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0/reports/
 
-## 5. Result Checks
-
-```bash
-cat work/artifacts/<run>/reports/epoch_metrics.csv
-ls work/artifacts/<run>/predictions
-ls work/artifacts/<run>/checkpoints
-```
-
-Sync back at least:
-
-```text
-work/artifacts/<run>/reports/
-work/artifacts/<run>/predictions/
+rsync -av --progress \
+  user@server:/path/to/DRAGEN/work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0/predictions/ \
+  work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0/predictions/
 ```

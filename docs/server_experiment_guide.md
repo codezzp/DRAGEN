@@ -1,18 +1,26 @@
 # Server Experiment Guide
 
-This guide is for the current active training branch:
+This guide is for migrating the current `run_0003` Weibo experiment to a GPU server for formal training.
+
+Current branch:
 
 ```text
-feature/key-user-pool-global-prior
+experiment/run-0003-server-training-docs
 ```
 
-Current recommended experiment line:
+Training line:
 
 ```text
-Feature-v2 + RoBERTa Text + Key-user Pool Global Prior
+run_0003 + Feature-v2 + RoBERTa Text + Label-v2 + Key-user Pool Global Prior
 ```
 
-Do not use the old edge-list Full run as the first formal server run. Speed diagnosis showed the old global edge-list branch is the main bottleneck.
+Important status:
+
+```text
+run_0003 formal training has not been run yet.
+Only the run_0003 pack pipeline and a tiny smoke run exist locally.
+Do not report the old run_0002 seed results as run_0003 results.
+```
 
 ## 1. Pull Code
 
@@ -21,15 +29,15 @@ Fresh clone:
 ```bash
 git clone git@github.com:codezzp/DRAGEN.git
 cd DRAGEN
-git checkout feature/key-user-pool-global-prior
+git checkout experiment/run-0003-server-training-docs
 ```
 
 Existing repo:
 
 ```bash
 cd DRAGEN
-git fetch codezzp
-git checkout feature/key-user-pool-global-prior
+git fetch origin
+git checkout experiment/run-0003-server-training-docs
 git pull
 ```
 
@@ -38,12 +46,6 @@ Verify:
 ```bash
 git branch --show-current
 git log --oneline -3
-```
-
-Expected branch:
-
-```text
-feature/key-user-pool-global-prior
 ```
 
 ## 2. Environment
@@ -58,8 +60,6 @@ CUDA-enabled PyTorch
 Install common dependencies:
 
 ```bash
-python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
-python -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install numpy pandas scipy scikit-learn tqdm pyyaml matplotlib networkx
 python -m pip install transformers accelerate datasets sentencepiece tokenizers safetensors huggingface_hub
@@ -85,12 +85,12 @@ if torch.cuda.is_available():
 PY
 ```
 
-## 3. Required Pack
+## 3. Required run_0003 Pack
 
-The formal v2 key-user run requires this pack:
+Formal `run_0003` training must use this key-user pack:
 
 ```text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
+packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
 ```
 
 Each pack directory must contain:
@@ -103,43 +103,35 @@ meta.json
 pack_diagnostics.json
 ```
 
-If the key-user pack already exists locally, upload it:
-
-```powershell
-scp -r packs\obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool user@server:/path/to/DRAGEN/packs/
-```
-
-Linux/macOS or server-to-server transfer:
-
-```bash
-rsync -av --progress packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/ \
-  user@server:/path/to/DRAGEN/packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/
-```
-
-If the server only has the old v2 RoBERTa-text pack, build the key-user pack on the server:
-
-```bash
-python scripts/13b_build_key_user_pool_packs.py \
-  --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
-  --max-hops 4 \
-  --key-users-per-window 32 \
-  --seed-budget 16 \
-  --rho 0.6
-```
-
-Normal training does not need these raw/intermediate directories:
+Local pack diagnostics:
 
 ```text
-graph/follow_edges.tsv
-work/runs/run_0002/windows/
-work/runs/run_0002/features_v2/
-work/runs/run_0002/text_embeddings/
+train = 6749
+valid = 1450
+test  = 1348
+total = 9547
+positive labels = 2043
+negative labels = 7504
+T = 6
+window_x dim = 24
+node_x dim = 47
+text_semantic_dim = 64
+key_users_per_window = 32
 ```
+
+Upload the pack:
+
+```bash
+rsync -av --progress \
+  packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/ \
+  user@server:/path/to/DRAGEN/packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/
+```
+
+Normal training does not need raw/intermediate directories if this pack is already present on the server.
 
 ## 4. Pack Shape Smoke
 
-Check that the key-user fields are readable and collated correctly:
+Run this before training:
 
 ```bash
 python - <<'PY'
@@ -147,20 +139,11 @@ import sys
 sys.path.insert(0, 'src')
 from dragen.data.pack_reader import PickleStreamDataset, collate_fn
 
-p = 'packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/train.pt'
+p = 'packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/train.pt'
 ds = PickleStreamDataset(p, max_samples=2, split='train-smoke')
 b = collate_fn([ds[0], ds[1]])
 
-for k in [
-    'window_x',
-    'node_x',
-    'node_text_x',
-    'window_text_x',
-    'key_user_idx',
-    'key_user_weight',
-    'key_user_hop',
-    'key_user_mask',
-]:
+for k in ['window_x', 'node_x', 'node_text_x', 'window_text_x', 'key_user_idx', 'key_user_weight', 'key_user_hop', 'key_user_mask']:
     print(k, tuple(b[k].shape), b[k].dtype)
 PY
 ```
@@ -176,11 +159,12 @@ key_user_mask    (2, 6, 32)
 
 ## 5. End-to-end Smoke
 
-Run a small train/valid/test export smoke before any formal run:
+Run a tiny `run_0003` smoke before any formal run:
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --pack-dir packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
   --epochs 1 \
   --batch-size 8 \
   --bucket-by-nodes \
@@ -191,117 +175,86 @@ python scripts/16_train_dragen_full.py \
   --max-train-samples 64 \
   --max-valid-samples 32 \
   --max-test-samples 32 \
-  --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
+  --out-dir work/artifacts/_smoke_run_0003_key_user_pool
 ```
 
-Check outputs:
+The local smoke already completed with these validation values:
 
-```bash
-cat work/artifacts/_smoke_v2_key_user_pool_e2e/reports/metrics.json
-ls work/artifacts/_smoke_v2_key_user_pool_e2e/predictions
+```text
+valid_accuracy = 0.75
+valid_auc = 0.4635
+valid_ap = 0.4278
 ```
 
-## 6. Speed Test
+These are smoke-only values and must not be used as formal results.
 
-Before formal training, run the 512/256/256 speed test:
+## 6. Formal run_0003 Training
+
+Run seed0:
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --epochs 1 \
-  --batch-size 8 \
+  --pack-dir packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
+  --seed 0 \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
   --no-plot-every-epoch \
   --no-tensorboard \
-  --max-train-samples 512 \
-  --max-valid-samples 256 \
-  --max-test-samples 256 \
-  --out-dir work/artifacts/_speed_v2_key_user_pool_bs8_bucket
+  --out-dir work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0
 ```
 
-Read training epoch time:
-
-```bash
-cat work/artifacts/_speed_v2_key_user_pool_bs8_bucket/reports/epoch_metrics.csv
-```
-
-Local reference:
-
-```text
-old edge-list Full = 599.02s
-no_global          = 36.05s
-no_adaptive        = 516.22s
-key_user_pool      = 42.07s
-```
-
-`epoch_time_sec` records train + valid. Final prediction export may take extra time on larger samples.
-
-## 7. Formal v2 Key-user Training
-
-Run v2 seed0:
+Run seed1:
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --bucket-by-nodes \
-  --bucket-size-multiplier 50 \
-  --max-nodes-per-batch 12000 \
-  --no-plot-every-epoch \
-  --no-tensorboard
-```
-
-Default output:
-
-```text
-work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0
-```
-
-Optional seed1:
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --pack-dir packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
   --seed 1 \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
   --no-plot-every-epoch \
   --no-tensorboard \
-  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1
+  --out-dir work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed1
 ```
 
-Optional seed2:
+Run seed2:
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --pack-dir packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
   --seed 2 \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
   --no-plot-every-epoch \
   --no-tensorboard \
-  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2
+  --out-dir work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed2
 ```
 
-## 8. Resume
+Report the mean and standard deviation over the three seeds.
 
-Resume seed0 from `last.pt`:
+## 7. Resume
+
+Resume seed0:
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --resume work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt \
+  --pack-dir packs/run_0003_obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
+  --resume work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0/checkpoints/last.pt \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
   --no-plot-every-epoch \
-  --no-tensorboard
+  --no-tensorboard \
+  --out-dir work/artifacts/run_0003_dragen_label_v2_roberta_text_key_user_pool_seed0
 ```
 
-## 9. Result Sync-back
+## 8. Result Sync-back
 
 For each formal run, sync back at least:
 
@@ -317,25 +270,15 @@ work/artifacts/<run>/checkpoints/best.pt
 work/artifacts/<run>/checkpoints/last.pt
 ```
 
-Example:
-
-```bash
-rsync -av --progress user@server:/path/to/DRAGEN/work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/reports/ \
-  work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/reports/
-
-rsync -av --progress user@server:/path/to/DRAGEN/work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/predictions/ \
-  work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/predictions/
-```
-
-## 10. Recommended Order
+## 9. Recommended Order
 
 ```text
-1. Checkout feature/key-user-pool-global-prior
-2. Upload or build v2 key_user_pool pack
+1. Checkout experiment/run-0003-server-training-docs
+2. Upload the run_0003 key-user pack
 3. Run pack shape smoke
-4. Run 64/32/32 end-to-end smoke
-5. Run 512/256/256 speed test
-6. Run formal v2 key_user_pool seed0
+4. Run tiny smoke training
+5. Run formal run_0003 seed0
+6. Run formal run_0003 seed1 and seed2
 7. Sync back reports/ and predictions/
-8. Decide whether to add seed1/seed2 or v5 key_user_pool
+8. Export tables only after formal run_0003 results exist
 ```
