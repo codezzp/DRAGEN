@@ -8,9 +8,9 @@ import torch
 import torch.nn.functional as F
 
 
-def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Dict[str, float]) -> tuple[torch.Tensor, Dict[str, float]]:
+def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Dict[str, Any]) -> tuple[torch.Tensor, Dict[str, float]]:
     y = batch["y"].float().to(outputs["event_logit"].device)
-    event = F.binary_cross_entropy_with_logits(outputs["event_logit"], y)
+    event = event_classification_loss(outputs["event_logit"], y, weights)
     jump = temporal_jump_loss(outputs)
     struct = structure_prior_loss(outputs)
     align = coral_alignment_loss(outputs["source_evidence"], outputs["node_mask"])
@@ -44,6 +44,27 @@ def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Di
     }
     return total, breakdown
 
+
+def event_classification_loss(logits: torch.Tensor, y: torch.Tensor, weights: Dict[str, Any]) -> torch.Tensor:
+    loss_name = str(weights.get("event_loss", "bce") or "bce").lower()
+    if loss_name == "bce":
+        return F.binary_cross_entropy_with_logits(logits, y)
+    if loss_name == "weighted_bce":
+        pos_weight = resolve_pos_weight(y, weights.get("pos_weight", "auto")).to(logits.device)
+        return F.binary_cross_entropy_with_logits(logits, y, pos_weight=pos_weight)
+    if loss_name == "focal":
+        alpha = float(weights.get("focal_alpha", 0.75))
+        gamma = float(weights.get("focal_gamma", 2.0))
+        bce = F.binary_cross_entropy_with_logits(logits, y, reduction="none")
+        prob = torch.sigmoid(logits)
+        p_t = prob * y + (1.0 - prob) * (1.0 - y)
+        alpha_t = alpha * y + (1.0 - alpha) * (1.0 - y)
+        return (alpha_t * (1.0 - p_t).pow(gamma) * bce).mean()
+    raise ValueError(f"Unsupported event_loss: {loss_name}")
+
+
+def resolve_pos_weight(y: torch.Tensor, value: Any) -> torch.Tensor:
+    return y.new_tensor(float(value))
 
 def sampler_temporal_loss(outputs: Dict[str, Any]) -> torch.Tensor:
     g = outputs["global_prior"]

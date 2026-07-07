@@ -68,6 +68,10 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         "lambda_sampler_edge": args.lambda_sampler_edge,
         "lambda_sampler_hub": args.lambda_sampler_hub,
         "lambda_sampler_temp": args.lambda_sampler_temp,
+        "event_loss": getattr(args, "event_loss", "bce"),
+        "pos_weight": resolve_pos_weight_arg(getattr(args, "pos_weight", "auto"), datasets["train"]),
+        "focal_alpha": getattr(args, "focal_alpha", 0.75),
+        "focal_gamma": getattr(args, "focal_gamma", 2.0),
     }
     best_score = -1.0
     history = []
@@ -156,6 +160,20 @@ def train_dragen_full(args: Any) -> Dict[str, Any]:
         writer.close()
     return {"metrics": metrics, "history": history}
 
+
+def resolve_pos_weight_arg(value: Any, train_dataset: Any) -> float:
+    if not isinstance(value, str):
+        return float(value)
+    key = value.lower()
+    if key not in {"auto", "sqrt_auto", "soft"}:
+        return float(value)
+    labels = [float(sample.get("y", 0.0)) for sample in getattr(train_dataset, "samples", [])]
+    pos = max(sum(1 for label in labels if label >= 0.5), 1)
+    neg = max(len(labels) - pos, 1)
+    ratio = neg / pos
+    if key == "auto":
+        return float(ratio)
+    return float(ratio ** 0.5)
 
 class NodeBucketBatchSampler:
     """Batch samples with similar node counts to reduce padding waste."""
