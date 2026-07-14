@@ -31,6 +31,7 @@ def binary_metrics(y_true: Iterable[int], y_prob: Iterable[float], threshold: fl
         "ap": average_precision_score(y, p),
         "mcc": ((tp * tn) - (fp * fn)) / denom,
         "brier": brier_score(y, p),
+        "nll": negative_log_likelihood(y, p),
         "ece": expected_calibration_error(y, p),
     }
     metrics.update(risk_retrieval_metrics(y, p))
@@ -101,6 +102,17 @@ def brier_score(y_true: Sequence[int], y_prob: Sequence[float]) -> float:
     return sum((float(p) - int(y)) ** 2 for y, p in zip(y_true, y_prob)) / len(y_true)
 
 
+def negative_log_likelihood(y_true: Sequence[int], y_prob: Sequence[float]) -> float:
+    if not y_true:
+        return 0.0
+    eps = 1e-12
+    loss = 0.0
+    for y, p in zip(y_true, y_prob):
+        p = min(max(float(p), eps), 1.0 - eps)
+        loss += -(int(y) * math.log(p) + (1 - int(y)) * math.log(1.0 - p))
+    return loss / len(y_true)
+
+
 def expected_calibration_error(y_true: Sequence[int], y_prob: Sequence[float], bins: int = 10) -> float:
     if not y_true:
         return 0.0
@@ -113,8 +125,8 @@ def expected_calibration_error(y_true: Sequence[int], y_prob: Sequence[float], b
         if not idx:
             continue
         conf = sum(float(y_prob[i]) for i in idx) / len(idx)
-        acc = sum(1 for i in idx if (1 if y_prob[i] >= 0.5 else 0) == int(y_true[i])) / len(idx)
-        ece += (len(idx) / total) * abs(acc - conf)
+        observed = sum(int(y_true[i]) for i in idx) / len(idx)
+        ece += (len(idx) / total) * abs(observed - conf)
     return ece
 
 

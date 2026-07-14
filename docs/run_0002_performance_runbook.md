@@ -1,4 +1,4 @@
-﻿# run_0002 Performance Experiment Runbook
+# run_0002 Performance Experiment Runbook
 
 This runbook gives the exact execution order for the run_0002 performance-improvement phase.
 
@@ -306,4 +306,80 @@ If checkpoint size is acceptable, also sync:
 work/artifacts/<run>/checkpoints/best.pt
 work/artifacts/<run>/checkpoints/last.pt
 work/artifacts/<run>/checkpoints/epoch_*.pt
+```
+
+## 10. Step 0.5: Loss Diagnostics and Probability Calibration
+
+These checks are low-cost and should run before adding more training experiments.
+
+### 10.1 Loss-effectiveness diagnostics
+
+After any training run, inspect:
+
+```bash
+cat work/artifacts/<run>/reports/loss_breakdown.json
+```
+
+Required fields include raw loss, configured weight, weighted contribution, and contribution ratio:
+
+```text
+loss_event
+weighted_loss_event
+loss_contribution_event
+loss_jump
+weighted_loss_jump
+loss_contribution_jump
+loss_struct
+weighted_loss_struct
+loss_contribution_struct
+loss_sampler
+weighted_loss_sampler
+loss_uncertainty
+weighted_loss_uncertainty
+loss_role
+weighted_loss_role
+```
+
+Interpretation rule:
+
+```text
+If a raw loss or weighted loss stays at 0 across epochs, treat that objective as inactive in the paper discussion unless it is intentionally disabled by its lambda.
+```
+
+### 10.2 Probability calibration
+
+Run after threshold calibration and before new training probes:
+
+```bash
+python scripts/23_calibrate_probabilities.py
+```
+
+Outputs:
+
+```text
+work/artifacts/_analysis/run_0002_probability_calibration/calibration_params.csv
+work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_test_metrics.csv
+work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_summary_mean_std.csv
+work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_summary.md
+```
+
+Selection rule:
+
+```text
+Fit calibrator on valid only.
+Choose the calibration method using valid Brier/NLL/ECE and valid F1/MCC under valid-selected thresholds.
+Apply the frozen calibrator to test only for reporting.
+```
+
+Probability calibration should not be expected to improve AUC. It may improve Brier, NLL, ECE, and threshold stability.
+
+Default execution writes only summary tables. Add --write-predictions only when calibrated per-sample CSV files are needed.
+
+### 10.3 Smoke checks
+
+If the environment does not install pytest, use compile and import checks:
+
+```bash
+python -m py_compile src/dragen/evaluation/metrics.py src/dragen/training/losses.py scripts/23_calibrate_probabilities.py
+$env:PYTHONPATH="src"; python -c "from dragen.evaluation.metrics import binary_metrics; print(binary_metrics([0,1,1],[0.1,0.4,0.9])['nll'])"
 ```

@@ -429,3 +429,69 @@ module replacement experiments
 One-sentence rule:
 
 > Tune the main model once using validation evidence, freeze it, then use test for final reporting and ablations to explain that fixed model.
+
+## 12. 2026-07-14 Controlled Additions
+
+This update keeps the performance-improvement scope bounded. It adds diagnostics and probability calibration, but does not introduce new model-architecture experiments.
+
+### Loss-effectiveness diagnostics
+
+Training loss breakdown now records raw loss, configured weight, weighted contribution, and relative contribution for each objective:
+
+```text
+loss_<name>
+loss_weight_<name>
+weighted_loss_<name>
+loss_contribution_<name>
+```
+
+The grouped sampler fields are also reported:
+
+```text
+loss_sampler
+weighted_loss_sampler
+```
+
+Use `reports/loss_breakdown.json` to verify whether auxiliary objectives are actually active. If `weighted_loss_role`, `weighted_loss_struct`, `weighted_loss_sampler_edge`, `weighted_loss_sampler_hub`, `weighted_loss_jump`, or `weighted_loss_uncertainty` is always zero or negligible, describe that objective as disabled or weakly active rather than claiming full supervision.
+
+### Probability calibration
+
+A new post-processing script fits probability calibrators on validation predictions and applies the fixed calibrator to test predictions:
+
+```text
+scripts/23_calibrate_probabilities.py
+```
+
+Supported methods:
+
+| Method | Retrain | Purpose |
+|---|---:|---|
+| none | No | Baseline probabilities |
+| temperature | No | Stable one-parameter logit calibration |
+| platt | No | Logistic calibration on logits |
+| isotonic | No | Non-parametric monotonic calibration |
+
+Additional probability-quality metrics are now available through `binary_metrics`:
+
+```text
+NLL
+Brier Score
+ECE
+```
+
+ECE now measures calibration error between the mean predicted probability and observed positive rate per bin. It is no longer based on thresholded classification accuracy.
+
+### Updated bounded execution order
+
+```text
+1. Threshold calibration
+2. Probability calibration
+3. Loss-effectiveness diagnostics
+4. Seed1 loss probes: BCE / Weighted BCE / Focal
+5. Learning-rate probe only if loss probes do not settle the issue
+6. Checkpoint selection or checkpoint probability averaging
+7. Freeze final main configuration
+8. Three-seed rerun only for the selected final setting
+```
+
+Do not add balanced sampling, hard-negative mining, feature-standardization changes, event-pooling replacements, or K-value sensitivity until the main configuration is frozen, unless one of the above diagnostics shows a concrete implementation bug.
