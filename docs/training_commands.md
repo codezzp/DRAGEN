@@ -325,3 +325,110 @@ old edge-list Full = 599.02s
 no_global          = 36.05s
 key_user_pool      = 42.07s
 ```
+
+## Run 0002 Calibration and Diagnostics Commands
+
+These commands are post-training or diagnostic commands. They do not change the model architecture.
+
+### Threshold calibration
+
+```bash
+python scripts/21_calibrate_thresholds.py
+```
+
+Outputs:
+
+```text
+work/artifacts/_analysis/run_0002_threshold_calibration/
+```
+
+Selection rule: choose the threshold on validation predictions, then apply the fixed threshold to test predictions.
+
+### Epoch-selection summary
+
+```bash
+python scripts/22_summarize_epoch_selection.py
+```
+
+Outputs:
+
+```text
+work/artifacts/_analysis/run_0002_epoch_selection/
+```
+
+Important: if per-epoch checkpoints were not saved, this is validation-curve analysis only. Do not claim test re-evaluation under best-F1 or best-MCC epochs unless the matching checkpoints exist.
+
+### Probability calibration
+
+```bash
+python scripts/23_calibrate_probabilities.py
+```
+
+Outputs:
+
+```text
+work/artifacts/_analysis/run_0002_probability_calibration/calibration_params.csv
+work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_test_metrics.csv
+work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_summary_mean_std.csv
+work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_summary.md
+```
+
+Default execution writes summary tables only. Add `--write-predictions` only if calibrated per-sample CSV files are needed:
+
+```bash
+python scripts/23_calibrate_probabilities.py --write-predictions
+```
+
+Supported methods:
+
+```text
+none
+temperature
+platt
+isotonic
+```
+
+The calibrator is fitted on validation predictions and then applied to test predictions. Use valid Brier/NLL/ECE and valid F1/MCC under valid-selected thresholds to choose the method.
+
+### Loss diagnostics
+
+After each training run, inspect:
+
+```bash
+cat work/artifacts/<run>/reports/loss_breakdown.json
+```
+
+Required diagnostic fields include:
+
+```text
+loss_event
+weighted_loss_event
+loss_contribution_event
+loss_jump
+weighted_loss_jump
+loss_contribution_jump
+loss_struct
+weighted_loss_struct
+loss_contribution_struct
+loss_sampler
+weighted_loss_sampler
+loss_uncertainty
+weighted_loss_uncertainty
+loss_role
+weighted_loss_role
+```
+
+If a raw loss or weighted loss stays at zero across epochs, treat that objective as inactive or disabled in the experiment write-up.
+
+### Bounded optimization order
+
+```text
+1. Threshold calibration
+2. Probability calibration
+3. Loss diagnostics
+4. Seed1 loss probes: BCE / Weighted BCE / Focal
+5. Learning-rate probe only if needed
+6. Checkpoint selection or checkpoint probability averaging
+7. Freeze final main configuration
+8. Three-seed rerun only for the selected final setting
+```

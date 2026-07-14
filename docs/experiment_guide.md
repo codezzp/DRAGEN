@@ -91,3 +91,35 @@ work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed
 Training does not run RoBERTa. RoBERTa encoding, reduction, semantic aggregation, and key-user pool construction are offline preprocessing steps. The training stage only reads the pack.
 
 Do not prioritize the old edge-list `dragen_full_label_v2_roberta_text.yaml` Full run for formal v2 training on this branch. The speed diagnosis showed the global edge-list branch is the main bottleneck.
+
+## Run 0002 Performance Optimization Boundary
+
+Before adding ablations or module replacements, finish the bounded main-model optimization stage:
+
+```text
+1. threshold calibration
+2. probability calibration
+3. loss-effectiveness diagnostics
+4. seed1 loss probes for BCE / Weighted BCE / Focal
+5. optional learning-rate probe only if loss probes are inconclusive
+```
+
+Do not add balanced sampling, hard-negative mining, feature-standardization changes, event-pooling replacements, or K-value sensitivity until the main configuration is frozen, unless diagnostics reveal a concrete implementation bug.
+
+Use these docs as the authoritative run_0002 optimization references:
+
+```text
+docs/run_0002_performance_improvement_plan.md
+docs/run_0002_performance_runbook.md
+docs/run_0002_threshold_epoch_analysis.md
+```
+
+Use these scripts for low-cost analyses:
+
+```bash
+python scripts/21_calibrate_thresholds.py
+python scripts/22_summarize_epoch_selection.py
+python scripts/23_calibrate_probabilities.py
+```
+
+Probability calibration is a post-processing step: fit on valid, freeze parameters, apply to test. It adds NLL/Brier/ECE reporting and may improve probability reliability or threshold stability, but it is not expected to improve AUC.

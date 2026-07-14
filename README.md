@@ -641,3 +641,48 @@ work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed
 ```
 
 The old edge-list Full config is no longer the recommended first formal run because the speed diagnosis showed the global edge-list branch is the main bottleneck.
+
+## Run 0002 Calibration and Diagnostics Update
+
+Current optimization branch:
+
+```text
+experiment/run-0002-calibration-diagnostics
+```
+
+This branch keeps the main DRAGEN architecture fixed and adds only bounded performance tools:
+
+```text
+1. loss-effectiveness diagnostics
+2. probability calibration on existing predictions
+3. NLL / Brier / ECE reporting for calibrated probabilities
+```
+
+Recommended post-training checks:
+
+```bash
+python scripts/21_calibrate_thresholds.py
+python scripts/22_summarize_epoch_selection.py
+python scripts/23_calibrate_probabilities.py
+```
+
+`reports/loss_breakdown.json` now includes raw, weighted, and relative loss contribution fields:
+
+```text
+loss_<name>
+loss_weight_<name>
+weighted_loss_<name>
+loss_contribution_<name>
+```
+
+Use these fields to verify whether role, structure, sampler, jump, and uncertainty losses are actually active before describing them as effective training objectives.
+
+Probability calibration is a validation-fitted post-processing step. It fits on `valid_event_predictions.csv`, freezes the calibrator, and applies it to `test_event_predictions.csv`. It should be used to improve probability interpretability and threshold stability, not to claim an AUC gain.
+
+Detailed docs:
+
+```text
+docs/run_0002_performance_improvement_plan.md
+docs/run_0002_performance_runbook.md
+docs/run_0002_threshold_epoch_analysis.md
+```
