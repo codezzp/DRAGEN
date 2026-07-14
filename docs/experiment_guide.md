@@ -1,125 +1,61 @@
-# Key-user Pool Experiment Guide
+# run_0002 实验指南
 
-This guide describes the current active branch:
+本文档定义当前实验边界，避免继续无边界扩展。
 
-```text
-feature/key-user-pool-global-prior
-```
-
-Current experiment line:
+## 1. 当前主线
 
 ```text
 Feature-v2 + RoBERTa Text + Key-user Pool Global Prior
 ```
 
-This branch keeps the old edge-list global branch for compatibility, but the recommended formal v2 run uses the fixed window-level `key_user_pool` branch.
-
-## Branch Boundary
-
-Keep and maintain:
+当前优化分支：
 
 ```text
-scripts/11_build_features_v2.py
-scripts/10_encode_text_roberta.py
-scripts/10b_reduce_text_embeddings.py
-scripts/11b_build_text_semantic_features.py
-scripts/11c_build_non_text_evidence_v2.py
-scripts/13b_build_key_user_pool_packs.py
-configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
-configs/train/dragen_full_label_v*_roberta_text.yaml
-src/dragen/models/key_user_global_prior.py
+experiment/run-0002-calibration-diagnostics
 ```
 
-Legacy compatibility files may remain in the repository, but they are not the first formal server-training path for this branch.
-
-## Required Pack
-
-Formal v2 key-user training reads:
+## 2. 当前阶段只解决什么
 
 ```text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
+1. 默认阈值下 Recall/F1 偏低
+2. 概率输出是否校准
+3. 辅助 loss 是否真实参与训练
+4. 类别不平衡 loss 是否改善 valid F1/MCC
+5. checkpoint/epoch 选择是否影响稳定性
 ```
 
-The pack must contain:
+## 3. 主模型冻结前不做什么
 
 ```text
-train.pt
-valid.pt
-test.pt
-meta.json
-pack_diagnostics.json
+balanced sampler
+hard-negative mining
+事件聚合模块替换
+Memory/Fusion/Candidate 模块替换
+K=16/32/64 敏感性
+特征标准化或缺失指示变量重构
 ```
 
-The key-user fields added to each sample are:
+## 4. 执行顺序
 
 ```text
-key_user_idx    [T, R]
-key_user_weight [T, R]
-key_user_hop    [T, R]
-key_user_mask   [T, R]
+1. 阈值校准
+2. 概率校准
+3. loss 生效诊断
+4. seed1 上比较 BCE / Weighted BCE / Focal Loss
+5. 必要时做 learning-rate probe
+6. checkpoint 选择或概率平均
+7. 冻结最终主模型配置
+8. 三种子复跑最终配置
+9. 冻结后做核心消融
+10. 最后再做模块替换或敏感性实验
 ```
 
-Default values are `T=6`, `R=32`, `max_hops=4`.
-
-## Training Order
-
-1. Checkout `feature/key-user-pool-global-prior`.
-2. Upload or build the v2 key-user pool pack.
-3. Run key-user pack shape smoke.
-4. Run 64/32/32 end-to-end smoke.
-5. Run 512/256/256 speed test.
-6. Run formal v2 key-user seed0.
-7. Sync back `reports/` and `predictions/`.
-8. Add seed1/seed2 only after seed0 is stable.
-
-## Formal Config
-
-Use:
+## 5. 主要参考文档
 
 ```text
-configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
-```
-
-The expected output directory is:
-
-```text
-work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0
-```
-
-## Notes
-
-Training does not run RoBERTa. RoBERTa encoding, reduction, semantic aggregation, and key-user pool construction are offline preprocessing steps. The training stage only reads the pack.
-
-Do not prioritize the old edge-list `dragen_full_label_v2_roberta_text.yaml` Full run for formal v2 training on this branch. The speed diagnosis showed the global edge-list branch is the main bottleneck.
-
-## Run 0002 Performance Optimization Boundary
-
-Before adding ablations or module replacements, finish the bounded main-model optimization stage:
-
-```text
-1. threshold calibration
-2. probability calibration
-3. loss-effectiveness diagnostics
-4. seed1 loss probes for BCE / Weighted BCE / Focal
-5. optional learning-rate probe only if loss probes are inconclusive
-```
-
-Do not add balanced sampling, hard-negative mining, feature-standardization changes, event-pooling replacements, or K-value sensitivity until the main configuration is frozen, unless diagnostics reveal a concrete implementation bug.
-
-Use these docs as the authoritative run_0002 optimization references:
-
-```text
+docs/training_commands.md
 docs/run_0002_performance_improvement_plan.md
 docs/run_0002_performance_runbook.md
 docs/run_0002_threshold_epoch_analysis.md
+docs/seed_results_summary.md
 ```
-
-Use these scripts for low-cost analyses:
-
-```bash
-python scripts/21_calibrate_thresholds.py
-python scripts/22_summarize_epoch_selection.py
-python scripts/23_calibrate_probabilities.py
-```
-
-Probability calibration is a post-processing step: fit on valid, freeze parameters, apply to test. It adds NLL/Brier/ECE reporting and may improve probability reliability or threshold stability, but it is not expected to improve AUC.

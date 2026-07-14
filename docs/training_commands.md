@@ -1,288 +1,20 @@
-# DRAGEN key-user pool 训练命令
+# DRAGEN 训练与后处理命令
 
-本文档是当前分支的命令索引。当前主线是：
+本文档只记录当前有效命令。
 
-```text
-Feature-v2 + RoBERTa Text + Key-user Pool Global Prior
-```
-
-当前分支：
-
-```text
-feature/key-user-pool-global-prior
-```
-
-当前正式训练优先使用：
-
-```text
-Label-v2：主实验
-Label-v5：严格标签鲁棒性
-```
-
-`v3/v4` pack 已生成，但暂不作为第一优先级。
-
-## 1. 已完成的正式 pack
-
-正式 v2 key-user 训练优先使用：
+## 1. 主实验 pack
 
 ```text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
 ```
 
-旧 RoBERTa-text source pack 仍保留，用于重新构建 key-user pack：
-
-```text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v5_roberta_text
-```
-
-正式 key-user 训练只读取 `_key_user_pool` pack，不会重新调用 RoBERTa。
-
-## 2. 服务器优先 smoke test
-
-```bash
-python - <<'PY'
-import sys
-sys.path.insert(0, 'src')
-from dragen.data.pack_reader import PickleStreamDataset, collate_fn
-p = 'packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/train.pt'
-ds = PickleStreamDataset(p, max_samples=2, split='train-smoke')
-b = collate_fn([ds[0], ds[1]])
-for k in ['window_x','node_x','node_text_x','window_text_x','key_user_idx','key_user_weight','key_user_hop','key_user_mask']:
-    print(k, tuple(b[k].shape), b[k].dtype)
-PY
-```
-小样本训练：
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --epochs 1 \
-  --max-train-samples 256 \
-  --max-valid-samples 128 \
-  --max-test-samples 128 \
-  --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
-```
-
-## 3. v2 主实验
-
-seed 0：
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
-```
-
-seed 1：
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --seed 1 \
-  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1
-```
-
-seed 2：
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --seed 2 \
-  --out-dir work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2
-```
-
-断点续训：
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --resume work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0/checkpoints/last.pt
-```
-
-## 4. v5 严格标签鲁棒性
-
-```bash
-python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v5_roberta_text.yaml
-```
-
-## 5. v2 核心消融
-
-现有消融 YAML 早期默认指向 v4 pack。论文主消融如果使用 v2，需要 CLI 覆盖 `--pack-dir` 和 `--out-dir`。
-
-v2 pack：
-
-```text
-packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
-```
-
-命令：
-
-```bash
-python scripts/17_run_ablation.py \
-  --config configs/train/ablation_no_global_prior.yaml \
-  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-dir work/artifacts/label_v2_ablation_no_global_prior
-
-python scripts/17_run_ablation.py \
-  --config configs/train/ablation_no_role.yaml \
-  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-dir work/artifacts/label_v2_ablation_no_role
-
-python scripts/17_run_ablation.py \
-  --config configs/train/ablation_no_memory.yaml \
-  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-dir work/artifacts/label_v2_ablation_no_memory
-
-python scripts/17_run_ablation.py \
-  --config configs/train/ablation_no_gate.yaml \
-  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-dir work/artifacts/label_v2_ablation_no_gate
-
-python scripts/17_run_ablation.py \
-  --config configs/train/ablation_no_uncertainty.yaml \
-  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-dir work/artifacts/label_v2_ablation_no_uncertainty
-
-python scripts/17_run_ablation.py \
-  --config configs/train/ablation_no_adaptive_sampling.yaml \
-  --pack-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-dir work/artifacts/label_v2_ablation_no_adaptive_sampling
-```
-
-暂时不要直接跑：
-
-```text
-w/o RoBERTa Text
-w/o MultiScale Context
-w/o HybridTree
-```
-
-原因：当前 key-user pool 分支仍使用 RoBERTa text pack，模型要求 pack 有 `node_text_x`；MultiScale/HybridTree 类消融还需要额外构建匹配的 feature_v2 + roberta_text pack。
-
-## 6. 当前 baseline 状态
-
-以下入口当前仍是占位实现，不能作为正式 baseline：
-
-```text
-scripts/14_train_cac_stat.py
-scripts/15_train_gnn_baselines.py
-src/dragen/baselines/cac_stat.py
-src/dragen/baselines/campaign_gnn.py
-src/dragen/baselines/temporal_gnn.py
-```
-
-因此当前服务器优先跑：
-
-```text
-DRAGEN-Full v2
-DRAGEN-Full v5
-v2 模块消融
-```
-
-## 7. 结果检查
-
-```bash
-cat work/artifacts/<run>/reports/metrics.json
-head work/artifacts/<run>/predictions/event_predictions.csv
-ls work/artifacts/<run>/checkpoints
-```
-
-每个 run 至少回传：
-
-```text
-work/artifacts/<run>/reports/
-work/artifacts/<run>/predictions/
-```
-
-checkpoint 太大时可以暂时不回传。
-
-## 8. 离线预处理命令记录
-
-这些命令本机已经跑完，服务器训练通常不需要再跑。
-
-Feature-v2：
-
-```bash
-python scripts/11_build_features_v2.py \
-  --run-id run_0002 \
-  --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree \
-  --tree-edges work/runs/run_0002/edges/hybrid_tree_light/inferred_tree_edge_table.csv \
-  --out-dir work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree
-```
-
-RoBERTa 编码与降维：
-
-```bash
-python scripts/10_encode_text_roberta.py \
-  --run-id run_0002 \
-  --model-name hfl/chinese-roberta-wwm-ext \
-  --max-length 128 \
-  --batch-size 32 \
-  --device cuda \
-  --out-dir work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext
-
-python scripts/10b_reduce_text_embeddings.py \
-  --in-dir work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext \
-  --out-dir work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext_reduced64 \
-  --dim 64 \
-  --seed 0
-
-python scripts/11b_build_text_semantic_features.py \
-  --run-id run_0002 \
-  --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree \
-  --text-emb-dir work/runs/run_0002/text_embeddings/chinese_roberta_wwm_ext_reduced64 \
-  --out-dir work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64 \
-  --dim 64
-```
-
-构建 v2 pack 示例：
-
-```bash
-python scripts/13_build_packs.py \
-  --run-id run_0002 \
-  --feature-dir work/runs/run_0002/features_v2/obs_1800_step300_multiscale_hybrid_tree \
-  --window-dir work/runs/run_0002/windows/obs_1800_step300_multiscale_hybrid_tree \
-  --labels work/runs/run_0002/labels_v2_stratified_score/weak_event_labels.csv \
-  --global-candidate-edges work/runs/run_0002/global_graph/obs_1800_step300_multiscale_hybrid_tree/global_candidate_edge_table.csv \
-  --text-semantic-dir work/runs/run_0002/text_semantic/obs_1800_step300_multiscale_hybrid_tree_roberta64 \
-  --out-dir packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
-```
-
-## Key-user Pool Global Prior Commands
-
-This branch adds a faster global prior mode that replaces the old variable edge-list global branch with a window-level key-user pool and GPU cross-attention.
-
-Build the Label-v2 key-user pack:
-
-```bash
-python scripts/13b_build_key_user_pool_packs.py \
-  --in-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text \
-  --out-pack packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool \
-  --max-hops 4 \
-  --key-users-per-window 32 \
-  --seed-budget 16 \
-  --rho 0.6
-```
-
-Check pack shapes:
+## 2. Pack 字段检查
 
 ```bash
 python -c "import sys; sys.path.insert(0,'src'); from dragen.data.pack_reader import PickleStreamDataset, collate_fn; p='packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool/train.pt'; ds=PickleStreamDataset(p,max_samples=2,split='train-smoke'); b=collate_fn([ds[0],ds[1]]); [print(k, tuple(b[k].shape), b[k].dtype) for k in ['window_x','node_x','node_text_x','window_text_x','key_user_idx','key_user_weight','key_user_hop','key_user_mask']]"
 ```
 
-Expected key-user fields:
-
-```text
-key_user_idx     (B, 6, 32)
-key_user_weight  (B, 6, 32)
-key_user_hop     (B, 6, 32)
-key_user_mask    (B, 6, 32)
-```
-
-Run a small end-to-end smoke:
+## 3. 小样本 smoke test
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -300,105 +32,95 @@ python scripts/16_train_dragen_full.py \
   --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
 ```
 
-Run a speed test:
+## 4. 正式训练模板
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --epochs 1 \
-  --batch-size 8 \
+  --seed <SEED> \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --save-every-epoch \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/run_0002_final_dragen_seed<SEED>
+```
+
+## 5. Loss 对比命令
+
+先只跑 seed1，用 valid 指标选方向。
+
+Weighted BCE soft：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --event-loss weighted_bce \
+  --pos-weight soft \
+  --seed 1 \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
   --no-plot-every-epoch \
   --no-tensorboard \
-  --max-train-samples 512 \
-  --max-valid-samples 256 \
-  --max-test-samples 256 \
-  --out-dir work/artifacts/_speed_v2_key_user_pool_bs8_bucket
+  --out-dir work/artifacts/run_0002_loss_weighted_bce_soft_seed1
 ```
 
-Local speed result for the training epoch:
+Weighted BCE auto：
 
-```text
-old edge-list Full = 599.02s
-no_global          = 36.05s
-key_user_pool      = 42.07s
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --event-loss weighted_bce \
+  --pos-weight auto \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/run_0002_loss_weighted_bce_auto_seed1
 ```
 
-## Run 0002 Calibration and Diagnostics Commands
+Focal Loss：
 
-These commands are post-training or diagnostic commands. They do not change the model architecture.
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --event-loss focal \
+  --focal-alpha 0.75 \
+  --focal-gamma 2.0 \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/run_0002_loss_focal_seed1
+```
 
-### Threshold calibration
+## 6. 后处理命令
 
 ```bash
 python scripts/21_calibrate_thresholds.py
-```
-
-Outputs:
-
-```text
-work/artifacts/_analysis/run_0002_threshold_calibration/
-```
-
-Selection rule: choose the threshold on validation predictions, then apply the fixed threshold to test predictions.
-
-### Epoch-selection summary
-
-```bash
 python scripts/22_summarize_epoch_selection.py
-```
-
-Outputs:
-
-```text
-work/artifacts/_analysis/run_0002_epoch_selection/
-```
-
-Important: if per-epoch checkpoints were not saved, this is validation-curve analysis only. Do not claim test re-evaluation under best-F1 or best-MCC epochs unless the matching checkpoints exist.
-
-### Probability calibration
-
-```bash
 python scripts/23_calibrate_probabilities.py
 ```
 
-Outputs:
-
-```text
-work/artifacts/_analysis/run_0002_probability_calibration/calibration_params.csv
-work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_test_metrics.csv
-work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_summary_mean_std.csv
-work/artifacts/_analysis/run_0002_probability_calibration/probability_calibration_summary.md
-```
-
-Default execution writes summary tables only. Add `--write-predictions` only if calibrated per-sample CSV files are needed:
+需要逐样本校准预测时才加：
 
 ```bash
 python scripts/23_calibrate_probabilities.py --write-predictions
 ```
 
-Supported methods:
-
-```text
-none
-temperature
-platt
-isotonic
-```
-
-The calibrator is fitted on validation predictions and then applied to test predictions. Use valid Brier/NLL/ECE and valid F1/MCC under valid-selected thresholds to choose the method.
-
-### Loss diagnostics
-
-After each training run, inspect:
+## 7. Loss 生效诊断
 
 ```bash
 cat work/artifacts/<run>/reports/loss_breakdown.json
 ```
 
-Required diagnostic fields include:
+重点字段：
 
 ```text
 loss_event
@@ -406,29 +128,12 @@ weighted_loss_event
 loss_contribution_event
 loss_jump
 weighted_loss_jump
-loss_contribution_jump
 loss_struct
 weighted_loss_struct
-loss_contribution_struct
 loss_sampler
 weighted_loss_sampler
 loss_uncertainty
 weighted_loss_uncertainty
 loss_role
 weighted_loss_role
-```
-
-If a raw loss or weighted loss stays at zero across epochs, treat that objective as inactive or disabled in the experiment write-up.
-
-### Bounded optimization order
-
-```text
-1. Threshold calibration
-2. Probability calibration
-3. Loss diagnostics
-4. Seed1 loss probes: BCE / Weighted BCE / Focal
-5. Learning-rate probe only if needed
-6. Checkpoint selection or checkpoint probability averaging
-7. Freeze final main configuration
-8. Three-seed rerun only for the selected final setting
 ```
