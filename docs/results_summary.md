@@ -1,3 +1,6 @@
+<!-- DOC_STATUS -->
+> 历史参考：早期结果摘要。当前三种子结果优先看 `docs/seed_results_summary.md`。
+
 # Results Summary
 
 ## 当前阶段

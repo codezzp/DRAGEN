@@ -1,3 +1,6 @@
+<!-- DOC_STATUS -->
+> 历史参考：详细性能优化计划。当前最短执行路径见 `README.md`、`docs/training_commands.md` 和 `docs/experiment_guide.md`。
+
 # run_0002 Performance Improvement Plan
 
 This document defines the short, controlled performance-improvement phase before freezing the DRAGEN main model and starting ablation experiments.

@@ -1,3 +1,6 @@
+<!-- DOC_STATUS -->
+> 历史参考：早期执行手册。部分命令已合并到 `docs/training_commands.md`，当前执行以训练命令文档为准。
+
 # run_0002 Performance Experiment Runbook
 
 This runbook gives the exact execution order for the run_0002 performance-improvement phase.
