@@ -23,6 +23,7 @@
 | 文档 | 用途 |
 |---|---|
 | `run_0002_performance_improvement_plan.md` | 性能优化计划，内容较详细，作为参考 |
+| `run_0002_server_step_by_step.md` | 服务器逐步实验执行手册，按阶段列出命令、输出目录和判断规则 |
 | `run_0002_performance_runbook.md` | 历史执行手册，部分内容已被 `training_commands.md` 合并 |
 | `server_experiment_guide.md` | 服务器迁移和运行记录，按需查看 |
 
