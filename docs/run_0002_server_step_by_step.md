@@ -241,7 +241,6 @@ PY
 ---
 
 # 7. Loss 生效诊断
-
 ```bash
 python - <<'PY'
 import json
@@ -279,6 +278,96 @@ for root in runs:
 PY
 ```
 
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+runs = [
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0"),
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1"),
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2"),
+]
+
+for root in runs:
+    path = root / "reports/loss_breakdown.json"
+
+    print(f"\n{'=' * 20} {root.name} {'=' * 20}")
+
+    if not path.exists():
+        print("文件不存在：", path)
+        continue
+
+    data = json.loads(path.read_text())
+
+    history = data.get("history", [])
+    if not history:
+        print("history 为空")
+        continue
+
+    last = history[-1]
+    valid_loss = last.get("valid_loss", {})
+
+    print("epoch:", last.get("epoch"))
+    print("train_loss:", last.get("train_loss"))
+
+    for key, value in valid_loss.items():
+        if isinstance(value, (int, float)):
+            print(f"{key:32s}: {value:.10f}")
+        else:
+            print(f"{key:32s}: {value}")
+PY
+```
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+runs = [
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0"),
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1"),
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2"),
+]
+
+keys = [
+    "loss_total",
+    "loss_event",
+    "loss_jump",
+    "loss_struct",
+    "loss_align",
+    "loss_uncertainty",
+    "loss_role",
+    "loss_sampler_edge",
+    "loss_sampler_hub",
+    "loss_sampler_temp",
+]
+
+for root in runs:
+    path = root / "reports/loss_breakdown.json"
+
+    print(f"\n{'=' * 20} {root.name} {'=' * 20}")
+
+    if not path.exists():
+        print("文件不存在")
+        continue
+
+    data = json.loads(path.read_text())
+
+    print("epoch | " + " | ".join(keys))
+    print("-" * 190)
+
+    for record in data.get("history", []):
+        losses = record.get("valid_loss", {})
+
+        values = []
+        for key in keys:
+            value = losses.get(key)
+            values.append("-" if value is None else f"{value:.6f}")
+
+        print(f"{record.get('epoch', '-')!s:>5} | " + " | ".join(values))
+PY
+```
 判断：
 
 ```text
