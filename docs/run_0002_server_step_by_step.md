@@ -1,257 +1,298 @@
-# run_0002 服务器逐步实验执行手册
+# DRAGEN 服务器全部实验命令与统一查看手册
 
-> 本文档根据 Obsidian 中的《DRAGEN 后续实验执行计划（修改后）》整理，用于服务器按步执行。
+> 当前实验线：`run_0002`  
+> 当前分支：`experiment/run-0002-calibration-diagnostics`  
+> 当前主 Pack：`Feature-v2 + RoBERTa Text + Label-v2 + Key-user Pool`  
+> 原则：只用 Valid 选择阈值、Loss 和 checkpoint；Test 只用于冻结配置后的最终报告。
 
-## 0. 服务器快速开始
+---
 
-先更新代码：
+# 0. 每次登录服务器先执行
 
 ```bash
-cd /path/to/DRAGEN
-git fetch codezzp
-git checkout experiment/run-0002-calibration-diagnostics
-git pull
+cd /usr/src/code/DRAGEN
+
 export PYTHONPATH=src
+export BRANCH=experiment/run-0002-calibration-diagnostics
+export PACK=packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
+
+mkdir -p logs
 ```
 
-确认当前分支：
+---
+
+# 1. 更新代码
+
+## 1.1 服务器已有该分支
 
 ```bash
+git fetch codezzp
+git switch "$BRANCH"
+git pull --ff-only codezzp "$BRANCH"
+```
+
+## 1.2 服务器第一次切换到该分支
+
+```bash
+git fetch codezzp
+git switch -c "$BRANCH" --track "codezzp/$BRANCH"
+```
+
+## 1.3 统一检查
+
+```bash
+echo "===== BRANCH ====="
 git branch --show-current
+
+echo "===== COMMITS ====="
 git log --oneline -3
+
+echo "===== STATUS ====="
+git status --short
 ```
 
-确认主实验 pack 存在：
+---
+
+# 2. 检查环境与 Pack
+
+## 2.1 GPU
 
 ```bash
-ls packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
+nvidia-smi
 ```
 
-当前服务器第一步从概率校准开始：
+## 2.2 PyTorch
 
 ```bash
-python scripts/23_calibrate_probabilities.py
+python - <<'PY'
+import torch
+print("torch:", torch.__version__)
+print("cuda:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("gpu:", torch.cuda.get_device_name(0))
+PY
 ```
 
----
+## 2.3 Pack 文件
 
-# DRAGEN 后续实验执行计划（修改后）
+```bash
+ls -lh "$PACK"
+```
 
-> 适用范围：当前 `run_0002` 性能优化与实验闭环。  
-> 当前主线：`Feature-v2 + RoBERTa Text + Label-v2 + Key-user Pool Global Prior`。  
-> 核心原则：所有方案选择只使用验证集；测试集只在配置冻结后用于最终报告。
-
----
-
-## 1. 当前状态
-
-### 1.1 已完成
-
-1. `run_0002` 的窗口、HybridTree、Feature-v2、RoBERTa 文本语义、Label-v2、Global Candidate 和 Key-user Pool Pack 已完成。
-2. DRAGEN 已完成 `seed0 / seed1 / seed2` 三次训练。
-3. 默认阈值下三种子测试结果已经汇总：
-   - AUC：`0.9220 ± 0.0086`
-   - AP：`0.7927 ± 0.0086`
-   - F1：`0.5896 ± 0.0316`
-   - MCC：`0.5679 ± 0.0231`
-   - P@100：`0.9767 ± 0.0115`
-   - P@500：`0.7620 ± 0.0122`
-4. 阈值校准已经完成：
-   - Valid-best F1：测试 F1 约为 `0.6999`
-   - Valid-best MCC：测试 F1 约为 `0.6998`，MCC 约为 `0.6216`
-5. Epoch 曲线分析已经完成。现有旧实验未完整保存各轮 checkpoint，因此当前不能声称已按最佳 epoch 重新评估测试集。
-6. Weighted BCE、Focal Loss、概率校准和损失生效诊断的命令入口已经准备好。
-
-### 1.2 尚未完成
-
-1. 概率校准结果。
-2. 辅助损失是否真实生效的诊断。
-3. BCE、Weighted BCE、Focal Loss 的 seed1 对比。
-4. 最终主模型配置冻结。
-5. 冻结配置下的三随机种子正式复跑。
-6. Adapted baselines。
-7. 核心消融实验。
-8. 小模块替换实验。
-9. Label-v5 严格标签鲁棒性实验。
-10. 论文第五章结果表与分析文字。
-
----
-
-## 2. 总体执行路线
+应至少包含：
 
 ```text
-阶段 A：完成低成本性能优化
-    概率校准
-    → 辅助损失诊断
-    → seed1 loss probe
-    → 必要时 learning-rate probe
-    → 确定 checkpoint 与阈值策略
+train.pt
+valid.pt
+test.pt
+meta.json
+pack_diagnostics.json
+```
 
-阶段 B：冻结主模型
-    固定 pack、loss、threshold、checkpoint、seed、输出命名
+## 2.4 Pack 字段
 
-阶段 C：正式主结果
-    最终配置 seed0 / seed1 / seed2
-    → 汇总 mean ± std
+```bash
+python -c "import sys; sys.path.insert(0,'src'); from dragen.data.pack_reader import PickleStreamDataset, collate_fn; p='$PACK/train.pt'; ds=PickleStreamDataset(p,max_samples=2,split='train-smoke'); b=collate_fn([ds[0],ds[1]]); [print(k, tuple(b[k].shape), b[k].dtype) for k in ['window_x','node_x','node_text_x','window_text_x','key_user_idx','key_user_weight','key_user_hop','key_user_mask']]"
+```
 
-阶段 D：主实验
-    实现并运行 adapted baselines
+当前应接近：
 
-阶段 E：核心消融
-    验证主要模块是否有效
-
-阶段 F：模块替换
-    验证具体小模块优于常规替代方案
-
-阶段 G：鲁棒性与补充实验
-    Label-v5、参数敏感性、效率分析
-
-阶段 H：论文结果整理
-    生成主表、消融表、替换表、曲线和分析文字
+```text
+window_x        = (B, 6, 24)
+node_x          = (B, 6, N, 47)
+node_text_x     = (B, 6, N, 64)
+window_text_x   = (B, 6, 64)
+key_user_idx    = (B, 6, 32)
+key_user_weight = (B, 6, 32)
+key_user_hop    = (B, 6, 32)
+key_user_mask   = (B, 6, 32)
 ```
 
 ---
 
-# 3. 阶段 A：完成低成本性能优化
+# 3. Smoke Test
 
-## 3.1 概率校准
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --epochs 1 \
+  --batch-size 8 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --max-train-samples 64 \
+  --max-valid-samples 32 \
+  --max-test-samples 32 \
+  --out-dir work/artifacts/_smoke_v2_key_user_pool_e2e
+```
 
-### 目标
+查看：
 
-当前模型排序能力较强，但默认阈值明显偏保守。概率校准用于判断输出概率是否可信，并降低不同 seed 间最佳阈值差异。
+```bash
+cat work/artifacts/_smoke_v2_key_user_pool_e2e/reports/metrics.json
+cat work/artifacts/_smoke_v2_key_user_pool_e2e/reports/loss_breakdown.json
+```
 
-### 执行命令
+---
+
+# 4. 阈值校准
+
+## 4.1 运行
+
+```bash
+python scripts/21_calibrate_thresholds.py
+```
+
+## 4.2 统一查看
+
+```bash
+echo "===== THRESHOLDS ====="
+cat work/artifacts/_analysis/run_0002_threshold_calibration/threshold_by_seed.csv
+
+echo "===== SUMMARY ====="
+cat work/artifacts/_analysis/run_0002_threshold_calibration/threshold_summary_mean_std.csv
+
+echo "===== REPORT ====="
+cat work/artifacts/_analysis/run_0002_threshold_calibration/threshold_calibration_summary.md
+```
+
+当前已有结论：
+
+```text
+Default 0.5 F1 ≈ 0.5896
+Valid-best F1 F1 ≈ 0.6999
+Valid-best MCC F1 ≈ 0.6998
+```
+
+后续优先使用 Valid-best MCC。
+
+---
+
+# 5. Epoch 选择分析
+
+## 5.1 运行
+
+```bash
+python scripts/22_summarize_epoch_selection.py
+```
+
+## 5.2 统一查看
+
+```bash
+echo "===== EPOCH BY SEED ====="
+cat work/artifacts/_analysis/run_0002_epoch_selection/epoch_selection_by_seed.csv
+
+echo "===== EPOCH SUMMARY ====="
+cat work/artifacts/_analysis/run_0002_epoch_selection/epoch_selection_summary_mean_std.csv
+
+echo "===== EPOCH REPORT ====="
+cat work/artifacts/_analysis/run_0002_epoch_selection/epoch_selection_summary.md
+```
+
+旧实验未保存完整早期 checkpoint 时，只能做 Valid 曲线分析，不能声称已用最佳 epoch 重新评估 Test。
+
+---
+
+# 6. 概率校准
+
+## 6.1 运行
 
 ```bash
 python scripts/23_calibrate_probabilities.py
 ```
 
-需要保存逐样本校准概率时：
+保存逐样本结果：
 
 ```bash
 python scripts/23_calibrate_probabilities.py --write-predictions
 ```
 
-### 对比方法
-
-| 方法 | 是否重训 | 用途 |
-|---|---:|---|
-| None | 否 | 原始概率 |
-| Temperature Scaling | 否 | 单参数稳定校准 |
-| Platt Scaling | 否 | 逻辑回归式校准 |
-| Isotonic Regression | 否 | 非参数单调校准 |
-
-### 主要指标
-
-```text
-NLL
-Brier Score
-ECE
-```
-
-同时记录校准后的：
-
-```text
-Precision
-Recall
-F1
-MCC
-```
-
-### 选择规则
-
-只根据验证集选择校准器：
-
-1. Valid ECE、Brier Score 或 NLL 明显降低；
-2. Valid AUC/AP 不变；
-3. 校准后的最佳阈值在不同 seed 间更稳定；
-4. 不因校准导致 F1/MCC 明显下降。
-
-优先考虑 Temperature Scaling。Isotonic 只作为补充，因为验证集规模有限时可能过拟合。
-
----
-
-## 3.2 辅助损失生效诊断
-
-### 目标
-
-确认论文中的训练目标是否真实进入总损失并参与反向传播，避免公式、配置和代码不一致。
-
-### 检查命令
+## 6.2 统一查看
 
 ```bash
-cat work/artifacts/<run>/reports/loss_breakdown.json
+find work/artifacts/_analysis/run_0002_probability_calibration -maxdepth 1 -type f | sort
 ```
 
-重点检查：
+```bash
+python - <<'PY'
+from pathlib import Path
+import pandas as pd
 
-```text
-loss_event
-weighted_loss_event
-loss_contribution_event
+root = Path("work/artifacts/_analysis/run_0002_probability_calibration")
 
-loss_jump
-weighted_loss_jump
-loss_contribution_jump
+for p in sorted(root.glob("*.csv")):
+    print(f"\n===== {p.name} =====")
+    try:
+        print(pd.read_csv(p).to_string(index=False))
+    except Exception as e:
+        print("读取失败:", e)
 
-loss_struct
-weighted_loss_struct
-loss_contribution_struct
-
-loss_sampler
-weighted_loss_sampler
-loss_contribution_sampler
-
-loss_uncertainty
-weighted_loss_uncertainty
-loss_contribution_uncertainty
-
-loss_role
-weighted_loss_role
-loss_contribution_role
+for p in sorted(root.glob("*.md")):
+    print(f"\n===== {p.name} =====")
+    print(p.read_text())
+PY
 ```
 
-### 判断规则
+主要看：Valid NLL、Brier Score、ECE、F1 和 MCC。
 
-| 状态 | 处理方式 |
-|---|---|
-| 原始损失和加权损失均正常非零 | 可保留为有效训练目标 |
-| 原始损失非零但权重为 0 | 配置关闭，论文中说明未启用 |
-| 原始损失长期为 0 | 检查输入、mask、分支条件或实现 |
-| 加权贡献低于总损失的极小比例 | 视为弱正则，不应夸大作用 |
-| `loss_role=0` 且无角色标签 | 属于合理关闭，不写成角色监督训练 |
+---
 
-### 输出
+# 7. Loss 生效诊断
 
-新增一份诊断文档：
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
 
-```text
-docs/run_0002_loss_effectiveness_analysis.md
+runs = [
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0"),
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1"),
+    Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed2"),
+]
+
+wanted = [
+    "loss_event","weighted_loss_event","loss_contribution_event",
+    "loss_jump","weighted_loss_jump","loss_contribution_jump",
+    "loss_struct","weighted_loss_struct","loss_contribution_struct",
+    "loss_align","weighted_loss_align","loss_contribution_align",
+    "loss_sampler","weighted_loss_sampler","loss_contribution_sampler",
+    "loss_sampler_edge","weighted_loss_sampler_edge",
+    "loss_sampler_hub","weighted_loss_sampler_hub",
+    "loss_sampler_temp","weighted_loss_sampler_temp",
+    "loss_uncertainty","weighted_loss_uncertainty","loss_contribution_uncertainty",
+    "loss_role","weighted_loss_role","loss_contribution_role",
+]
+
+for root in runs:
+    p = root / "reports/loss_breakdown.json"
+    print(f"\n===== {root.name} =====")
+    if not p.exists():
+        print("missing:", p)
+        continue
+    data = json.loads(p.read_text())
+    for k in wanted:
+        if k in data:
+            print(f"{k:36s}: {data[k]}")
+PY
 ```
 
-内容至少包括：
+判断：
 
 ```text
-每个损失的均值
-配置权重
-加权贡献
-相对贡献率
-是否启用
-是否需要修复
-论文中的最终表述
+非零且进入 weighted loss：真实生效
+原始值非零但权重为 0：配置关闭
+长期为 0：检查实现、输入、mask 或触发条件
+loss_role=0 且无角色标签：合理关闭
 ```
 
 ---
 
-## 3.3 类别不平衡 Loss Probe
+# 8. Loss Probe：只跑 Seed1
 
-### 目标
-
-判断修改事件级分类损失能否在不损害 AUC/AP 的前提下进一步提高 Valid F1/MCC。
-
-### 第一轮只跑 seed1
-
-#### Weighted BCE soft
+## 8.1 Weighted BCE soft
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -262,12 +303,13 @@ python scripts/16_train_dragen_full.py \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
+  --save-every-epoch \
   --no-plot-every-epoch \
   --no-tensorboard \
   --out-dir work/artifacts/run_0002_loss_weighted_bce_soft_seed1
 ```
 
-#### Weighted BCE auto
+## 8.2 Weighted BCE auto
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -278,12 +320,13 @@ python scripts/16_train_dragen_full.py \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
+  --save-every-epoch \
   --no-plot-every-epoch \
   --no-tensorboard \
   --out-dir work/artifacts/run_0002_loss_weighted_bce_auto_seed1
 ```
 
-#### Focal Loss
+## 8.3 Focal Loss
 
 ```bash
 python scripts/16_train_dragen_full.py \
@@ -295,566 +338,557 @@ python scripts/16_train_dragen_full.py \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
+  --save-every-epoch \
   --no-plot-every-epoch \
   --no-tensorboard \
   --out-dir work/artifacts/run_0002_loss_focal_seed1
 ```
 
-### 对比表
-
-| Loss | Valid AUC | Valid AP | Valid F1 | Valid MCC | Valid Precision | Valid Recall | ECE |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| BCE |  |  |  |  |  |  |  |
-| Weighted BCE soft |  |  |  |  |  |  |  |
-| Weighted BCE auto |  |  |  |  |  |  |  |
-| Focal Loss |  |  |  |  |  |  |  |
-
-每个 loss 都需要同时报告：
-
-1. 默认阈值 0.5 结果；
-2. Valid-best MCC 阈值结果；
-3. AUC/AP；
-4. NLL/Brier/ECE。
-
-### 升级为三 seed 的条件
-
-某个 loss 只有同时满足以下条件，才进入三种子正式复跑：
-
-```text
-1. seed1 Valid F1 或 MCC 提升 >= 0.02；
-2. Valid AUC/AP 下降不超过 0.01；
-3. Precision 不出现明显崩塌；
-4. 概率校准指标不明显恶化；
-5. 提升不只是由默认阈值输出尺度变化造成。
-```
-
-如果 Weighted BCE/Focal 只改善默认阈值 F1，但 Valid-best MCC 后的结果没有提升，则继续使用 BCE。
-
 ---
 
-## 3.4 Learning-rate Probe：仅在必要时执行
-
-只有当 loss probe 结果不稳定或训练曲线波动明显时，再运行学习率实验。
-
-建议只试：
-
-```text
-1e-3
-5e-4
-3e-4
-```
-
-不做大规模网格搜索。若任一配置没有明显超过当前 `lr=1e-3`，立即结束学习率调试。
-
----
-
-## 3.5 Checkpoint 选择
-
-后续最终训练必须开启：
+# 9. 统一查看所有 Loss Probe
 
 ```bash
---save-every-epoch
+python - <<'PY'
+import json
+from pathlib import Path
+
+runs = {
+    "BCE": Path("work/artifacts/_artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed1"),
+    "WBCE-soft": Path("work/artifacts/run_0002_loss_weighted_bce_soft_seed1"),
+    "WBCE-auto": Path("work/artifacts/run_0002_loss_weighted_bce_auto_seed1"),
+    "Focal": Path("work/artifacts/run_0002_loss_focal_seed1"),
+}
+
+keys = ["accuracy","precision","recall","f1","auc","ap","mcc"]
+
+for split in ["valid","test"]:
+    print(f"\n===== {split.upper()} =====")
+    print("loss | " + " | ".join(keys))
+    print("-" * 110)
+
+    for name, root in runs.items():
+        p = root / "reports/metrics.json"
+        if not p.exists():
+            print(f"{name} | missing")
+            continue
+
+        data = json.loads(p.read_text())
+        block = data.get(split, {})
+        if not block and split == "valid":
+            block = data.get("validation", {})
+
+        vals = []
+        for k in keys:
+            v = block.get(k)
+            vals.append("-" if v is None else f"{v:.4f}")
+
+        print(name + " | " + " | ".join(vals))
+PY
 ```
 
-至少保存：
-
-```text
-last.pt
-best_valid_f1.pt
-best_valid_mcc.pt
-```
-
-最终建议：
-
-- 主表强调类别不平衡综合性能：优先 `best_valid_mcc.pt`；
-- 若最佳 checkpoint 与 last 的差异很小：使用 last，保证流程简单；
-- 不得用测试集选择 checkpoint。
+选择 Loss 时只使用 Valid 指标。
 
 ---
 
-# 4. 阶段 B：冻结主模型
+# 10. Learning-rate Probe（仅在必要时）
 
-性能优化结束后，新建：
-
-```text
-docs/run_0002_frozen_main_config.md
-```
-
-## 4.1 冻结配置表
-
-| 配置项 | 冻结值 |
-|---|---|
-| Dataset line | run_0002 |
-| Pack | `packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool` |
-| Label | Label-v2 |
-| Window | 30 min observation, 5 min step, MultiScale HybridTree |
-| Window steps | T=6 |
-| Window feature dim | 24 |
-| Node feature dim | 47 |
-| Text | RoBERTa semantic 64-dim |
-| Global prior | Key-user Pool |
-| Key users per window | 32 |
-| Event loss | 待实验确定 |
-| Threshold | 优先 Valid-best MCC |
-| Probability calibrator | 待实验确定 |
-| Checkpoint rule | 待实验确定 |
-| Seeds | 0 / 1 / 2 |
-| Main output | `work/artifacts/run_0002_final_dragen_seed*` |
-
-## 4.2 冻结规则
-
-冻结后禁止修改：
-
-```text
-pack
-label
-窗口配置
-主模型隐藏维度
-事件损失
-阈值选择规则
-checkpoint 选择规则
-评价指标
-数据划分
-```
-
-消融实验只能关闭指定模块，不能同时改变其他配置。
-
----
-
-# 5. 阶段 C：最终主模型三种子复跑
-
-只有当 event loss、checkpoint 或训练配置发生改变时，才需要重新跑 seed0/1/2。
+## 10.1 lr=5e-4
 
 ```bash
 python scripts/16_train_dragen_full.py \
   --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
-  --seed <SEED> \
+  --lr 0.0005 \
+  --seed 1 \
   --bucket-by-nodes \
   --bucket-size-multiplier 50 \
   --max-nodes-per-batch 12000 \
   --save-every-epoch \
   --no-plot-every-epoch \
   --no-tensorboard \
-  --out-dir work/artifacts/run_0002_final_dragen_seed<SEED>
+  --out-dir work/artifacts/run_0002_lr_5e-4_seed1
 ```
 
-正式结果统一报告：
+## 10.2 lr=3e-4
 
-```text
-mean ± std over seed0 / seed1 / seed2
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --lr 0.0003 \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --save-every-epoch \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/run_0002_lr_3e-4_seed1
 ```
 
-主表指标：
+当前基准为 lr=1e-3。
 
-```text
-Acc
-Precision
-Recall
-F1
-AUC
-AP
-MCC
-P@100
-P@500
+---
+
+# 11. 冻结主模型
+
+```bash
+nano docs/run_0002_frozen_main_config.md
 ```
 
-补充指标可放正文或附表：
+至少固定：
 
 ```text
-Balanced Accuracy
-Macro-F1
-Brier Score
-ECE
+Pack
+Label
+Window
+Event Loss
+Threshold Strategy
+Probability Calibrator
+Checkpoint Rule
+Seeds
+Output Naming
 ```
 
 ---
 
-# 6. 阶段 D：Adapted Baselines
+# 12. 最终主模型三种子
 
-## 6.1 实现顺序
+将最终 Loss 参数加入命令。
 
-1. `TDCB-adapt`
-2. `UWD-FSN-adapt`
-3. `IOHunter-adapt`
-4. `LEN-GNN-adapt`
-5. `EDCOC-adapt`
-6. `X-CoIA-adapt`
+## Seed0
 
-## 6.2 公平性要求
-
-所有 baseline 必须统一：
-
-```text
-同一 Label-v2 数据划分
-同一 train / valid / test
-同一事件级评价指标
-同一 valid 阈值选择原则
-同一测试集报告原则
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --seed 0 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --save-every-epoch \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/main/run_0002_final_dragen_seed0
 ```
 
-不能让 DRAGEN 使用 Valid-best MCC，而 baseline 固定使用 0.5。每个模型都应在自己的 valid 预测上选择阈值，再固定到 test。
+## Seed1
 
-## 6.3 主实验表
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --save-every-epoch \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/main/run_0002_final_dragen_seed1
+```
 
-| 方法 | Acc | Prec. | Rec. | F1 | AUC | AP | MCC | P@100 | P@500 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| IOHunter-adapt |  |  |  |  |  |  |  |  |  |
-| LEN-GNN-adapt |  |  |  |  |  |  |  |  |  |
-| EDCOC-adapt |  |  |  |  |  |  |  |  |  |
-| X-CoIA-adapt |  |  |  |  |  |  |  |  |  |
-| UWD-FSN-adapt |  |  |  |  |  |  |  |  |  |
-| TDCB-adapt |  |  |  |  |  |  |  |  |  |
-| DRAGEN |  |  |  |  |  |  |  |  |  |
+## Seed2
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --seed 2 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --save-every-epoch \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/main/run_0002_final_dragen_seed2
+```
 
 ---
 
-# 7. 阶段 E：核心消融实验
+# 13. 核心消融实验
 
-## 7.1 第一批必须完成
+> 现有消融 YAML 历史上可能指向其他 Pack。必须使用 `--pack-dir "$PACK"` 覆盖。
 
-```text
-w/o Global Prior
-w/o Adaptive Sampling
-w/o Memory
-w/o Role
-w/o Gate
-w/o Uncertainty
+```bash
+mkdir -p work/artifacts/ablations
 ```
 
-## 7.2 第二批按代码实际支持情况补充
+## w/o Global Prior
 
-```text
-w/o RoBERTa Text
-w/o Jump Loss
-w/o MultiScale
-w/o HybridTree
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_global_prior.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/ablations/no_global_prior_seed1
 ```
 
-注意：
+## w/o Adaptive Sampling
 
-- `w/o Text` 必须明确是关闭 RoBERTa 语义，还是关闭全部文本特征；
-- `w/o Jump Loss` 只有在 Jump Loss 实际非零并参与训练时才有意义；
-- 若某辅助损失始终未生效，不应设计对应消融。
-
-## 7.3 消融执行前检查
-
-现有部分消融 YAML 历史上可能指向其他 pack。执行前统一检查：
-
-```text
-pack_dir
-label version
-loss
-threshold strategy
-checkpoint rule
-output directory
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_adaptive_sampling.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/ablations/no_adaptive_sampling_seed1
 ```
 
-不得出现主模型使用 Label-v2，而消融误用 Label-v4 的情况。
+## w/o Memory
 
-## 7.4 消融结果表
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_memory.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/ablations/no_memory_seed1
+```
 
-| 模型 | Acc | F1 | AUC | AP | MCC | ΔF1 | ΔAUC | ΔAP | ΔMCC |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| w/o Global Prior |  |  |  |  |  |  |  |  |  |
-| w/o Adaptive Sampling |  |  |  |  |  |  |  |  |  |
-| w/o Memory |  |  |  |  |  |  |  |  |  |
-| w/o Role |  |  |  |  |  |  |  |  |  |
-| w/o Gate |  |  |  |  |  |  |  |  |  |
-| w/o Uncertainty |  |  |  |  |  |  |  |  |  |
-| DRAGEN |  |  |  |  |  | — | — | — | — |
+## w/o Role
 
-## 7.5 种子数量
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_role.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/ablations/no_role_seed1
+```
 
-- 完整模型：3 seeds；
-- 核心消融：至少 1 seed，最好 3 seeds；
-- 资源有限时，先用 seed1 跑全部消融，再对差异较小或结论关键的消融补 seed0/2。
+## w/o Gate
+
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_gate.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/ablations/no_gate_seed1
+```
+
+## w/o Uncertainty
+
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_uncertainty.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/ablations/no_uncertainty_seed1
+```
+
+## 其他已有消融
+
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_multiscale.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --out-dir work/artifacts/ablations/no_multiscale_seed1
+```
+
+```bash
+python scripts/17_run_ablation.py \
+  --config configs/train/ablation_no_tree.yaml \
+  --pack-dir "$PACK" \
+  --seed 1 \
+  --out-dir work/artifacts/ablations/no_tree_seed1
+```
 
 ---
 
-# 8. 阶段 F：模块替换实验
+# 14. 统一查看所有消融结果
 
-消融回答“模块有没有用”，替换实验回答“本文设计是否优于普通实现”。优先保留三组。
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
 
-## 8.1 跨窗口记忆模块替换
+root = Path("work/artifacts/ablations")
+keys = ["accuracy","precision","recall","f1","auc","ap","mcc"]
 
-| 方法 | 说明 |
+print("run | " + " | ".join(keys))
+print("-" * 120)
+
+for run in sorted(root.glob("*")):
+    p = run / "reports/metrics.json"
+    if not p.exists():
+        continue
+    data = json.loads(p.read_text())
+    test = data.get("test", data)
+    vals = []
+    for k in keys:
+        v = test.get(k)
+        vals.append("-" if v is None else f"{v:.4f}")
+    print(run.name + " | " + " | ".join(vals))
+PY
+```
+
+正式论文比较前，每个消融必须使用同一套 Valid 阈值选择规则。
+
+---
+
+# 15. Label-v5 严格标签鲁棒性
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v5_roberta_text.yaml \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --save-every-epoch \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/robustness/label_v5_seed1
+```
+
+运行前检查：
+
+```bash
+grep -E "pack_dir|use_global_prior|use_adaptive|use_memory|use_gate" configs/train/dragen_full_label_v5_roberta_text.yaml
+```
+
+如果 Label-v5 配置与冻结主模型结构不同，只能作为补充鲁棒性结果，不能直接归因于标签变化。
+
+---
+
+# 16. 结果表、预测分析和曲线
+
+## 16.1 导出结果表
+
+```bash
+python scripts/18_export_result_tables.py --config configs/train/result_tables_run0002.yaml
+```
+
+## 16.2 预测分析
+
+```bash
+python scripts/19_analyze_predictions.py --config configs/train/<analysis_config>.yaml
+```
+
+`<analysis_config>.yaml` 必须替换成仓库中真实存在的配置。
+
+## 16.3 训练曲线
+
+```bash
+python scripts/20_plot_training_curves.py --artifact-dir work/artifacts/main/run_0002_final_dragen_seed0
+```
+
+---
+
+# 17. Adapted Baselines 当前状态
+
+当前以下入口仍是占位实现，不能产出正式 baseline 结果：
+
+```text
+scripts/14_train_cac_stat.py
+scripts/15_train_gnn_baselines.py
+src/dragen/baselines/cac_stat.py
+src/dragen/baselines/campaign_gnn.py
+src/dragen/baselines/temporal_gnn.py
+```
+
+因此目前不能给出可靠的正式 baseline 运行命令。需要先实现：
+
+```text
+TDCB-adapt
+UWD-FSN-adapt
+IOHunter-adapt
+LEN-GNN-adapt
+EDCOC-adapt
+X-CoIA-adapt
+```
+
+实现后建议新增独立 YAML：
+
+```text
+configs/train/baseline_tdcb_adapt.yaml
+configs/train/baseline_uwd_fsn_adapt.yaml
+configs/train/baseline_iohunter_adapt.yaml
+configs/train/baseline_len_gnn_adapt.yaml
+configs/train/baseline_edcoc_adapt.yaml
+configs/train/baseline_x_coia_adapt.yaml
+```
+
+在代码实现前，不要运行当前占位入口并把结果写进论文。
+
+---
+
+# 18. 模块替换实验当前状态
+
+目前没有确认存在以下可运行配置：
+
+```text
+Memory：Last / Mean / EMA / LSTM / GRU
+Fusion：Concat / Fixed / Attention / Gate
+Sampling：Random / Degree / Similarity / Adaptive
+Text：StatText / CLS / Mean / Window Semantic
+```
+
+需要先增加模块开关与 YAML。建议配置名：
+
+```text
+configs/train/replacement_memory_last.yaml
+configs/train/replacement_memory_mean.yaml
+configs/train/replacement_memory_ema.yaml
+configs/train/replacement_memory_lstm.yaml
+
+configs/train/replacement_fusion_concat.yaml
+configs/train/replacement_fusion_fixed.yaml
+configs/train/replacement_fusion_attention.yaml
+
+configs/train/replacement_sampling_random.yaml
+configs/train/replacement_sampling_degree.yaml
+configs/train/replacement_sampling_similarity.yaml
+```
+
+实现后统一使用：
+
+```bash
+python scripts/16_train_dragen_full.py \
+  --config configs/train/<replacement_config>.yaml \
+  --seed 1
+```
+
+当前不要虚构命令或结果。
+
+---
+
+# 19. 统一查看服务器运行状态
+
+## GPU
+
+```bash
+watch -n 2 nvidia-smi
+```
+
+## 训练进程
+
+```bash
+ps -ef | grep -E "16_train_dragen_full|17_run_ablation" | grep -v grep
+```
+
+## 日志
+
+```bash
+tail -f logs/<experiment>.log
+```
+
+## 所有结果文件
+
+```bash
+find work/artifacts -maxdepth 4 -type f \
+  \( -name "metrics.json" -o -name "epoch_metrics.csv" -o -name "loss_breakdown.json" \) \
+  | sort
+```
+
+---
+
+# 20. 后台运行通用格式
+
+```bash
+nohup bash -lc '
+export PYTHONPATH=src
+python scripts/16_train_dragen_full.py \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
+  --seed 1 \
+  --bucket-by-nodes \
+  --bucket-size-multiplier 50 \
+  --max-nodes-per-batch 12000 \
+  --save-every-epoch \
+  --no-plot-every-epoch \
+  --no-tensorboard \
+  --out-dir work/artifacts/example_run
+' > logs/example_run.log 2>&1 &
+```
+
+记录 PID：
+
+```bash
+echo $! > logs/example_run.pid
+```
+
+查看：
+
+```bash
+tail -f logs/example_run.log
+```
+
+停止：
+
+```bash
+kill "$(cat logs/example_run.pid)"
+```
+
+---
+
+# 21. 全部执行顺序
+
+```text
+01. 更新并确认分支
+02. 检查 GPU、环境、Pack
+03. Smoke Test
+04. 阈值校准
+05. Epoch 分析
+06. 概率校准
+07. Loss 生效诊断
+08. Weighted BCE soft
+09. Weighted BCE auto
+10. Focal Loss
+11. 统一比较 Loss
+12. 必要时做 Learning-rate Probe
+13. 冻结主模型配置
+14. 最终主模型 Seed0/1/2
+15. 核心消融
+16. Label-v5 鲁棒性
+17. 导出结果表和预测分析
+18. 实现 Adapted Baselines
+19. 运行 Baselines
+20. 实现模块替换配置
+21. 运行 Memory/Fusion/Sampling 替换
+22. 汇总第五章结果
+```
+
+---
+
+# 22. 当前可运行状态
+
+| 实验 | 当前状态 |
 |---|---|
-| Last Window | 仅使用当前窗口 |
-| Mean Pooling | 历史窗口平均 |
-| EMA | 指数滑动平均 |
-| LSTM | 序列建模替代 |
-| GRU Memory | 本文方法 |
-
-重点指标：
-
-```text
-F1
-AUC
-AP
-MCC
-prob_jump_mean
-role_transition_rate
-训练时间
-```
-
-## 8.2 先验—观测融合模块替换
-
-| 方法 | 说明 |
-|---|---|
-| Concat | 直接拼接后分类 |
-| Fixed Weight | 固定 0.5/0.5 |
-| Attention Fusion | 普通注意力 |
-| Prior–Observation Gate | 本文方法 |
-
-重点指标：
-
-```text
-F1
-AUC
-AP
-MCC
-mean_gate_obs
-mean_gate_prior
-```
-
-## 8.3 全局候选/采样策略替换
-
-| 方法 | 说明 |
-|---|---|
-| Random Top-K | 随机候选 |
-| Degree Top-K | 按节点度排序 |
-| Static Similarity Top-K | 固定相似度排序 |
-| Key-user Pool / Adaptive Sampling | 本文方法 |
-
-重点指标：
-
-```text
-AUC
-AP
-P@100
-P@500
-Epoch Time
-GPU Memory
-```
-
-## 8.4 可选：文本表示替换
-
-| 文本表示 | 说明 |
-|---|---|
-| StatText | 数量、长度、轻量相似度 |
-| RoBERTa-CLS | CLS 表示 |
-| RoBERTa-Mean | Mean Pooling |
-| RoBERTa Window Semantic | 当前方案 |
-
-仅在输入文本覆盖和实现口径清楚时执行。
-
----
-
-# 9. 阶段 G：鲁棒性与补充实验
-
-## 9.1 Label-v5 严格标签鲁棒性
-
-当前已有 Label-v5 pack，可用于检验严格弱标签条件下模型是否仍保持稳定排序能力。
-
-| Label | AUC | AP | F1 | MCC | P@100 |
-|---|---:|---:|---:|---:|---:|
-| Label-v2 |  |  |  |  |  |
-| Label-v5 |  |  |  |  |  |
-
-定位：这是标签严格度鲁棒性实验，不是第二数据集实验。
-
-## 9.2 K 值敏感性
-
-只在主模型冻结后做：
-
-```text
-K = 16 / 32 / 64
-```
-
-同时报告：
-
-```text
-AUC
-AP
-F1
-P@100
-epoch time
-显存
-```
-
-## 9.3 效率分析
-
-至少记录：
-
-```text
-参数量
-每 epoch 时间
-峰值显存
-单样本或单批推理时间
-```
-
-重点比较：
-
-```text
-w/o Global Prior
-Static Top-K
-Key-user Pool / Adaptive Sampling
-DRAGEN-Full
-```
-
----
-
-# 10. 论文第五章建议结构
-
-```text
-5 实验验证及结果分析
-
-5.1 实验设置
-  5.1.1 实验数据
-  5.1.2 基线方法
-  5.1.3 评价指标
-  5.1.4 参数设置
-
-5.2 实验结果与分析
-  5.2.1 主实验结果
-  5.2.2 阈值与概率校准分析
-  5.2.3 消融实验
-  5.2.4 模块替换实验
-  5.2.5 标签鲁棒性与参数敏感性
-  5.2.6 效率分析
-
-5.3 本章小结
-```
-
-若篇幅有限，可将阈值校准和概率校准合并为“决策阈值与概率质量分析”，将 K 值和效率放入同一小节。
-
----
-
-# 11. 结果文件组织
-
-```text
-work/artifacts/
-  _analysis/
-    run_0002_threshold_calibration/
-    run_0002_probability_calibration/
-    run_0002_epoch_selection/
-    run_0002_loss_effectiveness/
-    run_0002_loss_comparison/
-
-  main/
-    run_0002_final_dragen_seed0/
-    run_0002_final_dragen_seed1/
-    run_0002_final_dragen_seed2/
-
-  baselines/
-    iohunter_adapt/
-    len_gnn_adapt/
-    edcoc_adapt/
-    x_coia_adapt/
-    uwd_fsn_adapt/
-    tdcb_adapt/
-
-  ablations/
-    no_global_prior/
-    no_adaptive_sampling/
-    no_memory/
-    no_role/
-    no_gate/
-    no_uncertainty/
-
-  replacements/
-    memory/
-    fusion/
-    sampling/
-    text/
-
-  robustness/
-    label_v5/
-    key_user_k/
-```
-
-每个正式运行目录必须保留：
-
-```text
-reports/resolved_config.yaml
-reports/command.txt
-reports/git_info.json
-reports/metrics.json
-reports/epoch_metrics.csv
-reports/loss_breakdown.json
-predictions/valid_event_predictions.csv
-predictions/test_event_predictions.csv
-checkpoints/
-```
-
----
-
-# 12. 立即执行清单
-
-```text
-[ ] 1. 运行概率校准
-[ ] 2. 汇总 None / Temperature / Platt / Isotonic 的 Valid 指标
-[ ] 3. 跑一次 loss 生效诊断
-[ ] 4. 明确 struct / sampler / jump / uncertainty 是否真实生效
-[ ] 5. 运行 seed1 Weighted BCE soft
-[ ] 6. 运行 seed1 Weighted BCE auto
-[ ] 7. 运行 seed1 Focal Loss
-[ ] 8. 使用 Valid-best MCC 统一比较四种 loss
-[ ] 9. 判断是否需要 learning-rate probe
-[ ] 10. 冻结主模型配置
-[ ] 11. 最终配置运行 seed0 / seed1 / seed2
-[ ] 12. 实现 adapted baselines
-[ ] 13. 运行核心消融
-[ ] 14. 完成 Memory / Fusion / Sampling 三组模块替换
-[ ] 15. 运行 Label-v5 鲁棒性
-[ ] 16. 汇总第五章表格和分析
-```
-
----
-
-# 13. 停止调参条件
-
-满足以下条件后必须停止继续优化，进入消融：
-
-```text
-1. 最终 loss 已由 valid 指标确定；
-2. 阈值策略已冻结；
-3. checkpoint 规则已冻结；
-4. 三种子 AUC/AP 稳定；
-5. F1/MCC 已达到当前可接受水平；
-6. 新增实验连续两次没有带来有效提升；
-7. 所有关键辅助损失状态已经解释清楚。
-```
-
-不要因为单个 seed 偶然提高继续无限调参。
-
----
-
-# 14. 最终实验论证链
-
-```text
-主实验：
-DRAGEN 相比 adapted baselines 整体性能更好。
-
-阈值与概率分析：
-模型排序能力稳定，校准后分类性能更加平衡。
-
-消融实验：
-全局先验、动态采样、跨窗口记忆、角色感知、门控和不确定性模块均具有贡献。
-
-模块替换：
-本文的 GRU Memory、Prior–Observation Gate 和 Key-user Pool/Adaptive Sampling
-优于简单平均、固定融合和静态采样。
-
-鲁棒性实验：
-在更严格的 Label-v5 条件下，模型仍保持稳定识别能力。
-
-效率实验：
-模型增加的全局和时序模块带来可接受的计算成本。
-```
-
----
-
-## 当前最关键的一句话
-
-> 现在先完成概率校准、辅助损失诊断和 seed1 loss probe；确定最终配置后立即冻结主模型，再开始 baseline、消融和三组模块替换实验。
+| 阈值校准 | 可直接运行 |
+| Epoch 分析 | 可直接运行 |
+| 概率校准 | 可直接运行 |
+| Loss 生效诊断 | 可直接查看 |
+| Weighted BCE | 可直接运行 |
+| Focal Loss | 可直接运行 |
+| Learning-rate Probe | 可直接运行 |
+| 最终三种子 | 可直接运行 |
+| 核心消融 | 有配置，运行前检查 Pack |
+| Label-v5 | 有配置，需检查结构一致性 |
+| 结果导出 | 有入口 |
+| Adapted Baselines | 仍是占位，暂不可正式运行 |
+| Memory/Fusion/Sampling 替换 | 尚未确认配置，需先实现 |
