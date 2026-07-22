@@ -1,3 +1,6 @@
+<!-- DOC_STATUS -->
+> 历史参考：早期结果摘要。当前三种子结果优先看 `docs/seed_results_summary.md`。
+
 # Results Summary
 
 ## 当前阶段
@@ -5,10 +8,10 @@
 截至当前分支：
 
 ```text
-experiment/run-0002-roberta-only
+feature/key-user-pool-global-prior
 ```
 
-`run_0002` 的预处理、HybridTree、MultiScale 窗口、feature_v2、RoBERTa text、global follow candidate、Label-v2 到 Label-v5 pack 已经完成。当前重点已经转入服务器正式训练，不再扩展预处理结构。
+`run_0002` 的预处理、HybridTree、MultiScale 窗口、feature_v2、RoBERTa text、global follow candidate、Label-v2 到 Label-v5 pack 已经完成。当前分支已新增 v2 key-user pool pack 和 GPU cross-attention global prior，服务器正式训练优先使用 key-user pool v2。
 
 Git 只提交代码、配置和文档。以下目录不进 Git：
 
@@ -160,6 +163,10 @@ v3/v4 = 后续补充
 ## 当前正式 Pack
 
 ```text
+packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
+
+Legacy RoBERTa-text source packs are also available and are used as inputs when rebuilding key-user packs:
+
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v3_roberta_text
 packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v4_roberta_text
@@ -184,13 +191,17 @@ test = 758
 total_samples = 5303
 ```
 
-pack smoke test 已确认训练端字段：
+key-user pack smoke test 已确认训练端字段：
 
 ```text
-window_x      = (B, 6, 24)
-node_x        = (B, 6, N, 47)
-node_text_x   = (B, 6, N, 64)
-window_text_x = (B, 6, 64)
+window_x        = (B, 6, 24)
+node_x          = (B, 6, N, 47)
+node_text_x     = (B, 6, N, 64)
+window_text_x   = (B, 6, 64)
+key_user_idx    = (B, 6, 32)
+key_user_weight = (B, 6, 32)
+key_user_hop    = (B, 6, 32)
+key_user_mask   = (B, 6, 32)
 ```
 
 ## 当前可用训练配置
@@ -198,7 +209,7 @@ window_text_x = (B, 6, 64)
 主模型：
 
 ```text
-configs/train/dragen_full_label_v2_roberta_text.yaml
+configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
 configs/train/dragen_full_label_v3_roberta_text.yaml
 configs/train/dragen_full_label_v4_roberta_text.yaml
 configs/train/dragen_full_label_v5_roberta_text.yaml
@@ -247,7 +258,7 @@ src/dragen/baselines/temporal_gnn.py
 
 ```bash
 python scripts/16_train_dragen_full.py \
-  --config configs/train/dragen_full_label_v2_roberta_text.yaml \
+  --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml \
   --epochs 1 \
   --max-train-samples 256 \
   --max-valid-samples 128 \
@@ -258,7 +269,7 @@ python scripts/16_train_dragen_full.py \
 v2 正式 seed0：
 
 ```bash
-python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v2_roberta_text.yaml
+python scripts/16_train_dragen_full.py --config configs/train/dragen_full_label_v2_roberta_text_key_user_pool.yaml
 ```
 
 v5 鲁棒性：

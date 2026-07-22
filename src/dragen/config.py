@@ -104,6 +104,7 @@ def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
             "pin_memory": "pin_memory",
             "persistent_workers": "persistent_workers",
             "prefetch_factor": "prefetch_factor",
+            "max_nodes_per_batch": "max_nodes_per_batch",
         },
     )
     merge_section(
@@ -118,6 +119,10 @@ def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
             "lambda_sampler_edge": "lambda_sampler_edge",
             "lambda_sampler_hub": "lambda_sampler_hub",
             "lambda_sampler_temp": "lambda_sampler_temp",
+            "event_loss": "event_loss",
+            "pos_weight": "pos_weight",
+            "focal_alpha": "focal_alpha",
+            "focal_gamma": "focal_gamma",
         },
     )
     merge_section(out, config.get("output"), {"out_dir": "out_dir", "main_out": "main_out", "risk_out": "risk_out", "ablation_out": "ablation_out"})

@@ -3,7 +3,7 @@
 本文档记录当前 RoBERTa text 产物和重建命令。当前分支：
 
 ```text
-experiment/run-0002-roberta-only
+feature/key-user-pool-global-prior
 ```
 
 训练阶段不重新调用 RoBERTa，只读取已经写入 pack 的：

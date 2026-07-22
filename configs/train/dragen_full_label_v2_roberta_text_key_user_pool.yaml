@@ -1,8 +1,8 @@
 run_id: run_0002
-experiment_name: dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0
+experiment_name: dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0
 
 data:
-  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_keyuser
+  pack_dir: packs/obs_1800_step300_multiscale_hybrid_tree_feature_v2_global_follow_label_v2_roberta_text_key_user_pool
   input_variant: MultiScale-HybridTree-FeatureV2-KeyUserPool-LabelV2-RoBERTaText
 
 model:
@@ -25,6 +25,7 @@ model:
 train:
   epochs: 10
   batch_size: 8
+  max_nodes_per_batch: 12000
   lr: 0.001
   weight_decay: 0.00001
   seed: 0
@@ -55,4 +56,4 @@ checkpoint:
   save_every_epoch: false
 
 output:
-  out_dir: work/artifacts/dragen_follow_keyuser_label_v2_roberta_text_feature_v2_seed0
+  out_dir: work/artifacts/dragen_follow_key_user_pool_label_v2_roberta_text_feature_v2_seed0

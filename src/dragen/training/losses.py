@@ -8,9 +8,9 @@ import torch
 import torch.nn.functional as F
 
 
-def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Dict[str, float]) -> tuple[torch.Tensor, Dict[str, float]]:
+def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Dict[str, Any]) -> tuple[torch.Tensor, Dict[str, float]]:
     y = batch["y"].float().to(outputs["event_logit"].device)
-    event = F.binary_cross_entropy_with_logits(outputs["event_logit"], y)
+    event = event_classification_loss(outputs["event_logit"], y, weights)
     jump = temporal_jump_loss(outputs)
     struct = structure_prior_loss(outputs)
     align = coral_alignment_loss(outputs["source_evidence"], outputs["node_mask"])
@@ -19,31 +19,67 @@ def dragen_full_loss(outputs: Dict[str, Any], batch: Dict[str, Any], weights: Di
     sampler_edge = outputs.get("sampler_edge_loss", outputs["event_logit"].new_tensor(0.0))
     sampler_hub = outputs.get("sampler_hub_loss", outputs["event_logit"].new_tensor(0.0))
     sampler_temp = sampler_temporal_loss(outputs)
-    total = (
-        event
-        + weights.get("lambda_jump", 0.01) * jump
-        + weights.get("lambda_struct", 0.005) * struct
-        + weights.get("lambda_align", 0.001) * align
-        + weights.get("lambda_uncertainty", 0.001) * uncertainty
-        + weights.get("lambda_role", 0.0) * role
-        + weights.get("lambda_sampler_edge", 0.005) * sampler_edge
-        + weights.get("lambda_sampler_hub", 0.001) * sampler_hub
-        + weights.get("lambda_sampler_temp", 0.005) * sampler_temp
-    )
-    breakdown = {
-        "loss_total": float(total.detach().cpu()),
-        "loss_event": float(event.detach().cpu()),
-        "loss_jump": float(jump.detach().cpu()),
-        "loss_struct": float(struct.detach().cpu()),
-        "loss_align": float(align.detach().cpu()),
-        "loss_uncertainty": float(uncertainty.detach().cpu()),
-        "loss_role": float(role.detach().cpu()),
-        "loss_sampler_edge": float(sampler_edge.detach().cpu()),
-        "loss_sampler_hub": float(sampler_hub.detach().cpu()),
-        "loss_sampler_temp": float(sampler_temp.detach().cpu()),
+    raw_losses = {
+        "event": event,
+        "jump": jump,
+        "struct": struct,
+        "align": align,
+        "uncertainty": uncertainty,
+        "role": role,
+        "sampler_edge": sampler_edge,
+        "sampler_hub": sampler_hub,
+        "sampler_temp": sampler_temp,
     }
+    loss_weights = {
+        "event": 1.0,
+        "jump": float(weights.get("lambda_jump", 0.01)),
+        "struct": float(weights.get("lambda_struct", 0.005)),
+        "align": float(weights.get("lambda_align", 0.001)),
+        "uncertainty": float(weights.get("lambda_uncertainty", 0.001)),
+        "role": float(weights.get("lambda_role", 0.0)),
+        "sampler_edge": float(weights.get("lambda_sampler_edge", 0.005)),
+        "sampler_hub": float(weights.get("lambda_sampler_hub", 0.001)),
+        "sampler_temp": float(weights.get("lambda_sampler_temp", 0.005)),
+    }
+    weighted_losses = {name: raw_losses[name] * loss_weights[name] for name in raw_losses}
+    total = sum(weighted_losses.values())
+    total_value = float(total.detach().cpu())
+    denom = max(abs(total_value), 1e-12)
+    breakdown = {"loss_total": total_value}
+    for name, raw in raw_losses.items():
+        weighted = weighted_losses[name]
+        weighted_value = float(weighted.detach().cpu())
+        breakdown[f"loss_{name}"] = float(raw.detach().cpu())
+        breakdown[f"loss_weight_{name}"] = loss_weights[name]
+        breakdown[f"weighted_loss_{name}"] = weighted_value
+        breakdown[f"loss_contribution_{name}"] = weighted_value / denom
+    breakdown["loss_sampler"] = breakdown["loss_sampler_edge"] + breakdown["loss_sampler_hub"] + breakdown["loss_sampler_temp"]
+    breakdown["weighted_loss_sampler"] = (
+        breakdown["weighted_loss_sampler_edge"] + breakdown["weighted_loss_sampler_hub"] + breakdown["weighted_loss_sampler_temp"]
+    )
     return total, breakdown
 
+
+def event_classification_loss(logits: torch.Tensor, y: torch.Tensor, weights: Dict[str, Any]) -> torch.Tensor:
+    loss_name = str(weights.get("event_loss", "bce") or "bce").lower()
+    if loss_name == "bce":
+        return F.binary_cross_entropy_with_logits(logits, y)
+    if loss_name == "weighted_bce":
+        pos_weight = resolve_pos_weight(y, weights.get("pos_weight", "auto")).to(logits.device)
+        return F.binary_cross_entropy_with_logits(logits, y, pos_weight=pos_weight)
+    if loss_name == "focal":
+        alpha = float(weights.get("focal_alpha", 0.75))
+        gamma = float(weights.get("focal_gamma", 2.0))
+        bce = F.binary_cross_entropy_with_logits(logits, y, reduction="none")
+        prob = torch.sigmoid(logits)
+        p_t = prob * y + (1.0 - prob) * (1.0 - y)
+        alpha_t = alpha * y + (1.0 - alpha) * (1.0 - y)
+        return (alpha_t * (1.0 - p_t).pow(gamma) * bce).mean()
+    raise ValueError(f"Unsupported event_loss: {loss_name}")
+
+
+def resolve_pos_weight(y: torch.Tensor, value: Any) -> torch.Tensor:
+    return y.new_tensor(float(value))
 
 def sampler_temporal_loss(outputs: Dict[str, Any]) -> torch.Tensor:
     g = outputs["global_prior"]
